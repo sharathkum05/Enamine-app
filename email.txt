@@ -1,0 +1,23 @@
+Subject: RE: SPEI & PPEI Formulas Confirmation
+
+Hi,
+
+Yes, I can confirm the approach used for the normalized indices:
+
+First, %Inhibition is converted to a per_one scale (0.0–1.0) by dividing by 100.
+
+Then the two efficiency metrics are calculated:
+- SPEI = per_one / (MW × 0.001) — normalizes activity by molecular weight in kiloDaltons
+- PPEI = per_one / (TPSA × 0.01) — normalizes activity by polar surface area divided by 100
+
+The efficiency plane plots SPEI on the X-axis and PPEI on the Y-axis, with the best candidates appearing in the upper right quadrant.
+
+The app also generates histograms for per_one, SPEI, and PPEI distributions to preview data quality before it goes to the Stokes group for AI modeling.
+
+Totally agree — better to validate the data now than discover issues downstream!
+
+Stay warm out there!
+
+Best,
+Sharath
+
