@@ -14,7 +14,6 @@ from zipfile import ZipFile
 import numpy as np
 import pandas as pd
 import streamlit as st
-import plotly.io as pio
 
 from config import (
     APP_TITLE, APP_ICON, NEG_CONTROL_SPANS, POS_CONTROL_SPANS,
@@ -30,36 +29,6 @@ from utils.plotting import (
 )
 
 
-@st.cache_data
-def load_enamine_library():
-    """Auto-load ENAMINE library from backend."""
-    library_path = os.path.join(os.path.dirname(__file__), "Enamine_library.xlsx")
-    if os.path.exists(library_path):
-        try:
-            df = pd.read_excel(library_path)
-            return df
-        except Exception as e:
-            st.error(f"Error loading ENAMINE library: {str(e)}")
-            return None
-    else:
-        return None
-
-
-@st.cache_data
-def load_plate_layout():
-    """Auto-load plate layout from backend."""
-    layout_path = os.path.join(os.path.dirname(__file__), "Enamine_plate layout1.xlsx")
-    if os.path.exists(layout_path):
-        try:
-            df = pd.read_excel(layout_path, header=None)
-            return df
-        except Exception as e:
-            st.error(f"Error loading plate layout: {str(e)}")
-            return None
-    else:
-        return None
-
-
 # Page configuration
 st.set_page_config(
     page_title="ITR ENAMINE LIBRARY Analysis",
@@ -67,24 +36,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Auto-load ENAMINE Library on startup
-if 'library_df' not in st.session_state or st.session_state.library_df is None:
-    library_df = load_enamine_library()
-    if library_df is not None:
-        st.session_state.library_df = library_df
-        st.session_state.library_loaded = True
-    else:
-        st.session_state.library_loaded = False
-
-# Auto-load Plate Layout on startup
-if 'plate_layout' not in st.session_state:
-    layout_df = load_plate_layout()
-    if layout_df is not None:
-        st.session_state.plate_layout = layout_df
-        st.session_state.layout_loaded = True
-    else:
-        st.session_state.layout_loaded = False
 
 def initialize_session_state():
     """Initialize session state variables."""
@@ -165,41 +116,87 @@ def render_upload_section():
     """Render the file upload section."""
     st.header("📁 Data Upload")
     
-    # Show status of auto-loaded files
-    col1, col2 = st.columns(2)
+    st.info("""
+    📋 **Required Files:**
+    1. **ENAMINE Library** (xlsx) - Compound library with SMILES, MW, TPSA data
+    2. **Plate Data Files** (xlsx) - Plate reader output files
     
-    with col1:
-        st.subheader("ENAMINE Library")
-        if st.session_state.get('library_loaded', False):
-            num_compounds = len(st.session_state.library_df)
-            try:
-                num_plates = st.session_state.library_df['Plate_ID'].nunique()
-                st.success(f"✅ Loaded: {num_compounds:,} compounds across {num_plates} plates")
-            except:
-                st.success(f"✅ Loaded: {num_compounds:,} compounds")
-        else:
-            st.error("❌ Library file not found: Enamine_library.xlsx")
-            st.caption("Please ensure the file is in the same folder as app.py")
-    
-    with col2:
-        st.subheader("Plate Layout")
-        if st.session_state.get('layout_loaded', False):
-            st.success("✅ Loaded: Enamine_plate layout1.xlsx")
-        else:
-            st.error("❌ Layout file not found: Enamine_plate layout1.xlsx")
-            st.caption("Please ensure the file is in the same folder as app.py")
+    ⚠️ **Note:** You must upload the ENAMINE library file each session (file not stored on server for security/size reasons)
+    """)
     
     st.divider()
     
-    # Only show Plate Data Files uploader
-    st.subheader("Plate Data Files")
+    # ENAMINE Library uploader - REQUIRED every session
+    st.subheader("1️⃣ ENAMINE Library File")
+    
+    if st.session_state.get('library_loaded', False):
+        num_compounds = len(st.session_state.library_df)
+        try:
+            num_plates = st.session_state.library_df['Plate_ID'].nunique()
+            st.success(f"✅ Library loaded: {num_compounds:,} compounds across {num_plates} plates")
+        except:
+            st.success(f"✅ Library loaded: {num_compounds:,} compounds")
+        
+        # Option to re-upload if needed
+        if st.button("🔄 Upload Different Library File"):
+            st.session_state.library_df = None
+            st.session_state.library_loaded = False
+            st.rerun()
+    else:
+        st.warning("⚠️ Please upload the ENAMINE library file to begin")
+        
+        with st.expander("📖 Required Columns in Library File", expanded=False):
+            st.markdown("""
+            The ENAMINE library Excel file must contain these columns:
+            - `Plate_ID` - Plate identifier (e.g., "2096462-Y10-001")
+            - `Well` - Well position (e.g., "B03")
+            - `Smiles` - SMILES molecular structure
+            - `MW` - Molecular weight
+            - `TPSA` - Topological polar surface area
+            - `catalog number` - Compound identifier
+            """)
+        
+        uploaded_library = st.file_uploader(
+            "Upload ENAMINE Library (xlsx)",
+            type=['xlsx'],
+            key='library_upload',
+            help="Upload the Enamine_library.xlsx file containing compound information"
+        )
+        
+        if uploaded_library:
+            with st.spinner("Loading library file..."):
+                try:
+                    library_df = pd.read_excel(uploaded_library)
+                    
+                    # Validate required columns
+                    required_cols = ['Plate_ID', 'Well', 'Smiles', 'MW', 'TPSA', 'catalog number']
+                    missing_cols = [col for col in required_cols if col not in library_df.columns]
+                    
+                    if missing_cols:
+                        st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
+                        st.info("Please ensure your file has all required columns listed above.")
+                    else:
+                        st.session_state.library_df = library_df
+                        st.session_state.library_loaded = True
+                        st.success("✅ Library loaded successfully!")
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.error(f"❌ Error loading file: {str(e)}")
+    
+    st.divider()
+    
+    # Plate Data Files uploader
+    st.subheader("2️⃣ Plate Data Files")
     st.write("Upload plate reader output files (*.xlsx)")
+    
     plate_files = st.file_uploader(
         "Upload plate data files",
         type=["xlsx"],
         accept_multiple_files=True,
         key='plate_uploader',
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        help="Upload one or more plate data files (e.g., 301-1.xlsx, 301-2.xlsx)"
     )
     
     if plate_files:
@@ -355,6 +352,36 @@ def render_replicate_section():
         )
 
 
+def render_plate_selector():
+    """Render plate selector for individual or all plate analysis."""
+    st.markdown("## 📊 Plate Selection")
+    st.write("Analyze individual plates or all plates combined")
+    
+    # Get unique plate numbers from the data
+    available_plates = sorted(st.session_state.analysis_df['Plate'].unique())
+    
+    # Create selection options: "All Plates" + individual plate numbers
+    plate_options = ["All Plates"] + [f"Plate {p}" for p in available_plates]
+    
+    selected_plate = st.selectbox(
+        "Select plate to analyze:",
+        options=plate_options,
+        index=0  # Default to "All Plates"
+    )
+    
+    # Filter data based on selection
+    if selected_plate == "All Plates":
+        filtered_df = st.session_state.analysis_df.copy()
+        st.success(f"📊 Analyzing ALL {len(available_plates)} plates ({len(filtered_df):,} compounds)")
+    else:
+        plate_num = int(selected_plate.replace("Plate ", ""))
+        filtered_df = st.session_state.analysis_df[st.session_state.analysis_df['Plate'] == plate_num].copy()
+        st.success(f"📊 Analyzing {selected_plate} only ({len(filtered_df):,} compounds)")
+    
+    # Store filtered data for use in all plot sections
+    st.session_state.current_analysis_df = filtered_df
+
+
 def render_histogram_section():
     """Render Task 1A: %Inhibition Histogram."""
     st.markdown("## 📈 Task 1A: %Inhibition Distribution")
@@ -365,7 +392,8 @@ def render_histogram_section():
             st.session_state.replicate_mode
         )
     
-    df = st.session_state.analysis_df
+    # Use filtered data if plate selector has been used
+    df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
     
     # Create histogram
     fig = plot_inhibition_histogram(df, st.session_state.replicate_mode)
@@ -389,47 +417,50 @@ def render_histogram_section():
     with col6:
         st.metric("Max", f"{stats['max']:.1f}%")
     
-    # Download options
-    col1, col2 = st.columns(2)
-    with col1:
-        # Download plot
-        img_bytes = pio.to_image(fig, format='png', width=1200, height=600)
-        st.download_button(
-            "📷 Download Plot (PNG)",
-            data=img_bytes,
-            file_name="inhibition_histogram.png",
-            mime="image/png"
-        )
-    with col2:
-        # Download data
-        csv = df[['Plate', 'Well', 'Pct_Inhibition']].to_csv(index=False)
-        st.download_button(
-            "📊 Download Data (CSV)",
-            data=csv,
-            file_name="inhibition_data.csv",
-            mime="text/csv"
-        )
+    # Download data
+    csv = df[['Plate', 'Well', 'Pct_Inhibition']].to_csv(index=False)
+    st.download_button(
+        "📥 Download Data (CSV)",
+        data=csv,
+        file_name="inhibition_data.csv",
+        mime="text/csv"
+    )
 
 
 def render_normalized_histogram_section():
     """Render Task 1B: Size-Normalized Activity Histogram."""
     st.markdown("## 📈 Task 1B: Size-Normalized Activity")
     
-    st.info("**Formula:** SPEI = (% Inhibition / 100) / (MW × 0.001)\n\n*Higher values indicate more potent compounds per unit mass - smaller molecules with same activity are preferred.*")
-    
-    df = st.session_state.analysis_df
+    # Use filtered data if plate selector has been used
+    df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
     
     # Ensure metrics are calculated
     if 'SPEI' not in df.columns:
         df = calculate_metrics(df)
-        st.session_state.analysis_df = df
+        if st.session_state.get('current_analysis_df') is not None:
+            st.session_state.current_analysis_df = df
+        else:
+            st.session_state.analysis_df = df
     
-    # Create histogram
-    fig = plot_normalized_histogram(df, st.session_state.replicate_mode)
+    # SPEI Histogram
+    st.subheader("Size-Normalized Activity (SPEI)")
+    st.info("**Formula:** SPEI = (% Inhibition / 100) / (MW × 0.001)\n\n*Higher values indicate more potent compounds per unit mass - smaller molecules with same activity are preferred.*")
+    
+    # Filter to only positive SPEI values
+    total_spei = len(df)
+    spei_df = df[df['SPEI'] > 0].copy()
+    filtered_spei = len(spei_df)
+    excluded_spei = total_spei - filtered_spei
+    
+    st.info(f"📊 Showing {filtered_spei:,} compounds with SPEI > 0 ({excluded_spei:,} negative values excluded)")
+    
+    # Create histogram with filtered data
+    fig = plot_normalized_histogram(spei_df, st.session_state.replicate_mode)
+    fig.update_xaxes(range=[0, None])  # Start x-axis from 0
     st.plotly_chart(fig, use_container_width=True)
     
-    # Statistics
-    stats = calculate_summary_stats(df, 'SPEI')
+    # Statistics using filtered data
+    stats = calculate_summary_stats(spei_df, 'SPEI')
     
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
@@ -446,24 +477,74 @@ def render_normalized_histogram_section():
     with col6:
         st.metric("Max", f"{stats['max']:.2f}")
     
-    # Download options
-    col1, col2 = st.columns(2)
+    # Download filtered data
+    csv = spei_df[['Plate', 'Well', 'Pct_Inhibition', 'MW', 'SPEI']].to_csv(index=False)
+    st.download_button(
+        "📥 Download Data (CSV)",
+        data=csv,
+        file_name="spei_data.csv",
+        mime="text/csv"
+    )
+    
+    st.divider()
+    
+    # PPEI Histogram
+    st.subheader("Polarity-Normalized Activity (PPEI)")
+    st.info("**Formula:** PPEI = (% Inhibition / 100) / (TPSA × 0.01)\n\n*Higher values indicate more potent compounds per unit polarity - less polar molecules with same activity are preferred for membrane penetration.*")
+    
+    # Filter to only positive PPEI values
+    total_ppei = len(df)
+    ppei_df = df[df['PPEI'] > 0].copy()
+    filtered_ppei = len(ppei_df)
+    excluded_ppei = total_ppei - filtered_ppei
+    
+    st.info(f"📊 Showing {filtered_ppei:,} compounds with PPEI > 0 ({excluded_ppei:,} negative values excluded)")
+    
+    # Create PPEI histogram using plotly express with filtered data
+    import plotly.express as px
+    fig_ppei = px.histogram(
+        ppei_df,  # Use filtered data
+        x='PPEI',
+        nbins=50,
+        title='Polarity-Normalized Activity (PPEI)',
+        labels={'PPEI': 'PPEI = (% Inhibition / 100) / (TPSA × 0.01)'},
+        color_discrete_sequence=['#FF6B6B']  # Red color
+    )
+    fig_ppei.update_layout(
+        xaxis_title="PPEI = (% Inhibition / 100) / (TPSA × 0.01)",
+        yaxis_title="Count",
+        showlegend=False,
+        template='plotly_white'
+    )
+    fig_ppei.update_xaxes(range=[0, None])  # Start x-axis from 0
+    st.plotly_chart(fig_ppei, use_container_width=True)
+    
+    # PPEI Statistics using filtered data
+    ppei_stats = calculate_summary_stats(ppei_df, 'PPEI')
+    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    
     with col1:
-        img_bytes = pio.to_image(fig, format='png', width=1200, height=600)
-        st.download_button(
-            "📷 Download Plot (PNG)",
-            data=img_bytes,
-            file_name="normalized_histogram.png",
-            mime="image/png"
-        )
+        st.metric("Count", f"{ppei_stats['count']:,}")
     with col2:
-        csv = df[['Plate', 'Well', 'Pct_Inhibition', 'MW', 'SPEI']].to_csv(index=False)
-        st.download_button(
-            "📊 Download Data (CSV)",
-            data=csv,
-            file_name="normalized_data.csv",
-            mime="text/csv"
-        )
+        st.metric("Mean", f"{ppei_stats['mean']:.2f}")
+    with col3:
+        st.metric("Median", f"{ppei_stats['median']:.2f}")
+    with col4:
+        st.metric("Std Dev", f"{ppei_stats['std']:.2f}")
+    with col5:
+        st.metric("Min", f"{ppei_stats['min']:.2f}")
+    with col6:
+        st.metric("Max", f"{ppei_stats['max']:.2f}")
+    
+    # Download filtered PPEI data
+    csv = ppei_df[['Plate', 'Well', 'Pct_Inhibition', 'TPSA', 'PPEI']].to_csv(index=False)
+    st.download_button(
+        "📥 Download Data (CSV)",
+        data=csv,
+        file_name="ppei_data.csv",
+        mime="text/csv"
+    )
 
 
 def render_metrics_section():
@@ -472,7 +553,8 @@ def render_metrics_section():
     
     st.info("**SPEI** = per_one / (MW × 0.001) — Size efficiency: Higher = more potent per unit mass\n\n**PPEI** = per_one / (TPSA × 0.01) — Polarity efficiency: Higher = better membrane penetration")
     
-    df = st.session_state.analysis_df
+    # Use filtered data if plate selector has been used
+    df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
     
     # Data preview
     preview_cols = ['Plate', 'Well', 'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI', 'catalog_number']
@@ -511,7 +593,16 @@ def render_cartesian_section():
     
     st.info("Compounds in the **northeast corner** (high SPEI + high PPEI) are the best drug candidates: they're small, non-polar, and highly active.")
     
-    df = st.session_state.analysis_df
+    # Use filtered data if plate selector has been used
+    df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
+    
+    # Filter data to only show positive values (cut beyond origin 0,0)
+    total_points = len(df)
+    cartesian_df = df[(df['SPEI'] > 0) & (df['PPEI'] > 0)].copy()
+    filtered_points = len(cartesian_df)
+    excluded_points = total_points - filtered_points
+    
+    st.info(f"📊 Showing {filtered_points:,} compounds with SPEI > 0 and PPEI > 0. ({excluded_points:,} compounds with negative values excluded)")
     
     # Controls
     col1, col2 = st.columns(2)
@@ -538,14 +629,19 @@ def render_cartesian_section():
             horizontal=True
         )
     
-    # Create plot
-    fig = plot_cartesian(df, top_percentile, st.session_state.replicate_mode, metric)
+    # Create plot using filtered cartesian_df
+    fig = plot_cartesian(cartesian_df, top_percentile, st.session_state.replicate_mode, metric)
+    
+    # Set axes to start from 0
+    fig.update_xaxes(range=[0, None])
+    fig.update_yaxes(range=[0, None])
+    
     st.plotly_chart(fig, use_container_width=True)
     
     # Top candidates table
     st.markdown("### 🏆 Top Candidates")
     
-    df_ranked = get_top_candidates(df.copy(), top_percentile, metric)
+    df_ranked = get_top_candidates(cartesian_df.copy(), top_percentile, metric)
     top_df = df_ranked[df_ranked['Is_Top']].sort_values('Rank_Score', ascending=False)
     
     display_cols = ['Plate', 'Well', 'catalog_number', 'Chemical_name', 
@@ -558,26 +654,14 @@ def render_cartesian_section():
         height=400
     )
     
-    # Download options
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        img_bytes = pio.to_image(fig, format='png', width=1200, height=800)
-        st.download_button(
-            "📷 Download Plot (PNG)",
-            data=img_bytes,
-            file_name="cartesian_plot.png",
-            mime="image/png"
-        )
-    
-    with col2:
-        csv = top_df[available_cols].to_csv(index=False)
-        st.download_button(
-            "📊 Download Top Candidates (CSV)",
-            data=csv,
-            file_name="top_candidates.csv",
-            mime="text/csv"
-        )
+    # Download top candidates data
+    csv = top_df[available_cols].to_csv(index=False)
+    st.download_button(
+        "📥 Download Top Candidates (CSV)",
+        data=csv,
+        file_name="top_candidates.csv",
+        mime="text/csv"
+    )
 
 
 def render_export_section():
@@ -642,6 +726,7 @@ def render_sidebar():
             sections = [
                 '📋 QC Summary',
                 '🔄 Replicate Selection',
+                '📊 Plate Selection',
                 '📈 Task 1A: %Inhibition',
                 '📈 Task 1B: Normalized',
                 '🧮 Metrics',
@@ -689,6 +774,8 @@ def main():
             render_qc_section()
         elif selected == '🔄 Replicate Selection':
             render_replicate_section()
+        elif selected == '📊 Plate Selection':
+            render_plate_selector()
         elif selected == '📈 Task 1A: %Inhibition':
             render_histogram_section()
         elif selected == '📈 Task 1B: Normalized':

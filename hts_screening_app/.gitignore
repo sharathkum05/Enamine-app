@@ -1,0 +1,51 @@
+# Large data files - do not upload to GitHub
+Enamine_library.xlsx
+Enamine_plate layout1.xlsx
+*.xlsx
+
+# Keep sample/template files if needed
+!sample_plate.xlsx
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+venv/
+.venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+.directory
+
+# Processed data
+*.pkl
+processed_data/
+output/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+~*
+
