@@ -1,11 +1,12 @@
 """
-HTS Screening Data Analysis Streamlit App
+ITR ENAMINE LIBRARY Screening Data Analysis Streamlit App
 
-A comprehensive application for analyzing High-Throughput Screening (HTS) data
-from ENAMINE compound library plates.
+A comprehensive application for analyzing High-Throughput Screening data
+from ITR ENAMINE compound library plates.
 """
 
 import io
+import os
 import pickle
 from io import BytesIO
 from zipfile import ZipFile
@@ -29,147 +30,61 @@ from utils.plotting import (
 )
 
 
+@st.cache_data
+def load_enamine_library():
+    """Auto-load ENAMINE library from backend."""
+    library_path = os.path.join(os.path.dirname(__file__), "Enamine_library.xlsx")
+    if os.path.exists(library_path):
+        try:
+            df = pd.read_excel(library_path)
+            return df
+        except Exception as e:
+            st.error(f"Error loading ENAMINE library: {str(e)}")
+            return None
+    else:
+        return None
+
+
+@st.cache_data
+def load_plate_layout():
+    """Auto-load plate layout from backend."""
+    layout_path = os.path.join(os.path.dirname(__file__), "Enamine_plate layout1.xlsx")
+    if os.path.exists(layout_path):
+        try:
+            df = pd.read_excel(layout_path, header=None)
+            return df
+        except Exception as e:
+            st.error(f"Error loading plate layout: {str(e)}")
+            return None
+    else:
+        return None
+
+
 # Page configuration
 st.set_page_config(
-    page_title="HTS Screening Analysis",
+    page_title="ITR ENAMINE LIBRARY Analysis",
     page_icon=APP_ICON,
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for beautiful UI
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    
-    /* Main styling */
-    .main .block-container {
-        padding-top: 2rem;
-        max-width: 1400px;
-    }
-    
-    /* Headers */
-    h1, h2, h3 {
-        font-family: 'Crimson Pro', serif !important;
-        font-weight: 700;
-    }
-    
-    h1 {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 2.5rem !important;
-    }
-    
-    /* Metric cards */
-    .metric-card {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        border-radius: 12px;
-        padding: 1.5rem;
-        border-left: 4px solid #0f3460;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    }
-    
-    .metric-value {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.8rem;
-        font-weight: 600;
-        color: #0f3460;
-    }
-    
-    .metric-label {
-        font-family: 'Crimson Pro', serif;
-        color: #6c757d;
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    
-    /* Status badges */
-    .status-pass {
-        background-color: #d4edda;
-        color: #155724;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-weight: 500;
-    }
-    
-    .status-fail {
-        background-color: #f8d7da;
-        color: #721c24;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-weight: 500;
-    }
-    
-    /* Section dividers */
-    .section-divider {
-        height: 3px;
-        background: linear-gradient(90deg, #0f3460 0%, #e94560 50%, #0f3460 100%);
-        margin: 2rem 0;
-        border-radius: 2px;
-    }
-    
-    /* File uploader */
-    .stFileUploader > div > div {
-        border: 2px dashed #0f3460;
-        border-radius: 12px;
-    }
-    
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.75rem 2rem;
-        font-family: 'Crimson Pro', serif;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(15, 52, 96, 0.3);
-    }
-    
-    /* Expanders */
-    .streamlit-expanderHeader {
-        font-family: 'Crimson Pro', serif;
-        font-weight: 600;
-        color: #0f3460;
-    }
-    
-    /* DataFrames */
-    .dataframe {
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size: 0.85rem;
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-    }
-    
-    /* Info boxes */
-    .info-box {
-        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-        border-radius: 12px;
-        padding: 1rem 1.5rem;
-        border-left: 4px solid #1976d2;
-        margin: 1rem 0;
-    }
-    
-    /* Footer */
-    .footer {
-        text-align: center;
-        padding: 2rem;
-        color: #6c757d;
-        font-family: 'Crimson Pro', serif;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Auto-load ENAMINE Library on startup
+if 'library_df' not in st.session_state or st.session_state.library_df is None:
+    library_df = load_enamine_library()
+    if library_df is not None:
+        st.session_state.library_df = library_df
+        st.session_state.library_loaded = True
+    else:
+        st.session_state.library_loaded = False
 
+# Auto-load Plate Layout on startup
+if 'plate_layout' not in st.session_state:
+    layout_df = load_plate_layout()
+    if layout_df is not None:
+        st.session_state.plate_layout = layout_df
+        st.session_state.layout_loaded = True
+    else:
+        st.session_state.layout_loaded = False
 
 def initialize_session_state():
     """Initialize session state variables."""
@@ -248,46 +163,52 @@ def process_plate_files(plate_files, library_df, progress_bar, status_text):
 
 def render_upload_section():
     """Render the file upload section."""
-    st.markdown("## 📁 Data Upload")
+    st.header("📁 Data Upload")
     
+    # Show status of auto-loaded files
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### ENAMINE Library File")
-        st.caption("Upload the compound library (Enamine_library.xlsx)")
-        library_file = st.file_uploader(
-            "Upload Library",
-            type=['xlsx'],
-            key='library_uploader',
-            label_visibility='collapsed'
-        )
-        
-        if library_file:
-            if st.session_state.library_df is None:
-                with st.spinner("Loading library..."):
-                    st.session_state.library_df = load_library(library_file)
-                st.success(f"✅ Loaded {len(st.session_state.library_df):,} compounds")
-            else:
-                st.info(f"📚 Library loaded: {len(st.session_state.library_df):,} compounds")
+        st.subheader("ENAMINE Library")
+        if st.session_state.get('library_loaded', False):
+            num_compounds = len(st.session_state.library_df)
+            try:
+                num_plates = st.session_state.library_df['Plate_ID'].nunique()
+                st.success(f"✅ Loaded: {num_compounds:,} compounds across {num_plates} plates")
+            except:
+                st.success(f"✅ Loaded: {num_compounds:,} compounds")
+        else:
+            st.error("❌ Library file not found: Enamine_library.xlsx")
+            st.caption("Please ensure the file is in the same folder as app.py")
     
     with col2:
-        st.markdown("### Plate Data Files")
-        st.caption("Upload plate reader output files (*.xlsx)")
-        plate_files = st.file_uploader(
-            "Upload Plates",
-            type=['xlsx'],
-            accept_multiple_files=True,
-            key='plate_uploader',
-            label_visibility='collapsed'
-        )
-        
-        if plate_files:
-            st.info(f"📊 {len(plate_files)} plate files selected")
+        st.subheader("Plate Layout")
+        if st.session_state.get('layout_loaded', False):
+            st.success("✅ Loaded: Enamine_plate layout1.xlsx")
+        else:
+            st.error("❌ Layout file not found: Enamine_plate layout1.xlsx")
+            st.caption("Please ensure the file is in the same folder as app.py")
     
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.divider()
+    
+    # Only show Plate Data Files uploader
+    st.subheader("Plate Data Files")
+    st.write("Upload plate reader output files (*.xlsx)")
+    plate_files = st.file_uploader(
+        "Upload plate data files",
+        type=["xlsx"],
+        accept_multiple_files=True,
+        key='plate_uploader',
+        label_visibility="collapsed"
+    )
+    
+    if plate_files:
+        st.info(f"📊 {len(plate_files)} plate files selected")
+    
+    st.divider()
     
     # Alternative: Load saved data
-    st.markdown("### 💾 Or Load Saved Session")
+    st.subheader("💾 Or Load Saved Session")
     saved_file = st.file_uploader(
         "Load previously processed data (.pkl)",
         type=['pkl'],
@@ -306,8 +227,10 @@ def render_upload_section():
         except Exception as e:
             st.error(f"Error loading saved data: {str(e)}")
     
-    # Process button
-    if plate_files and st.session_state.library_df is not None:
+    # Process button - check if library is loaded
+    if not st.session_state.get('library_loaded', False):
+        st.warning("⚠️ Cannot process files: ENAMINE Library not found. Please ensure Enamine_library.xlsx is in the app folder.")
+    elif plate_files and st.session_state.library_df is not None:
         if st.button("🚀 Process Files", type="primary", use_container_width=True):
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -343,36 +266,16 @@ def render_qc_section():
     avg_zprime = qc_df['Z_Prime'].mean()
     
     with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Total Plates</div>
-            <div class="metric-value">{total_plates}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Total Plates", total_plates)
     
     with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Passed QC</div>
-            <div class="metric-value" style="color: #28a745;">{passed_plates}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Passed QC", passed_plates)
     
     with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Failed QC</div>
-            <div class="metric-value" style="color: #dc3545;">{failed_plates}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Failed QC", failed_plates)
     
     with col4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Avg Z' Factor</div>
-            <div class="metric-value">{avg_zprime:.3f}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Avg Z' Factor", f"{avg_zprime:.3f}")
     
     st.markdown("")
     
@@ -428,12 +331,7 @@ def render_replicate_section():
     """Render the replicate selection section."""
     st.markdown("## 🔄 Replicate Handling")
     
-    st.markdown("""
-    <div class="info-box">
-        Choose how to handle replicate measurements for downstream analysis.
-        Different approaches may be appropriate depending on your data quality and analysis goals.
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("Choose how to handle replicate measurements for downstream analysis. Different approaches may be appropriate depending on your data quality and analysis goals.")
     
     replicate_mode = st.radio(
         "Select replicate handling method:",
@@ -517,12 +415,7 @@ def render_normalized_histogram_section():
     """Render Task 1B: Size-Normalized Activity Histogram."""
     st.markdown("## 📈 Task 1B: Size-Normalized Activity")
     
-    st.markdown("""
-    <div class="info-box">
-        <strong>Formula:</strong> SPEI = (% Inhibition / 100) / (MW × 0.001)<br>
-        <em>Higher values indicate more potent compounds per unit mass - smaller molecules with same activity are preferred.</em>
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("**Formula:** SPEI = (% Inhibition / 100) / (MW × 0.001)\n\n*Higher values indicate more potent compounds per unit mass - smaller molecules with same activity are preferred.*")
     
     df = st.session_state.analysis_df
     
@@ -577,12 +470,7 @@ def render_metrics_section():
     """Render SPEI & PPEI metrics overview."""
     st.markdown("## 🧮 Efficiency Metrics")
     
-    st.markdown("""
-    <div class="info-box">
-        <strong>SPEI</strong> = per_one / (MW × 0.001) — Size efficiency: Higher = more potent per unit mass<br>
-        <strong>PPEI</strong> = per_one / (TPSA × 0.01) — Polarity efficiency: Higher = better membrane penetration
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("**SPEI** = per_one / (MW × 0.001) — Size efficiency: Higher = more potent per unit mass\n\n**PPEI** = per_one / (TPSA × 0.01) — Polarity efficiency: Higher = better membrane penetration")
     
     df = st.session_state.analysis_df
     
@@ -621,12 +509,7 @@ def render_cartesian_section():
     """Render Cartesian Plot (PPEI vs SPEI)."""
     st.markdown("## 🎯 Cartesian Plot: Best Candidates")
     
-    st.markdown("""
-    <div class="info-box">
-        Compounds in the <strong>northeast corner</strong> (high SPEI + high PPEI) are the best drug candidates:
-        they're small, non-polar, and highly active.
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("Compounds in the **northeast corner** (high SPEI + high PPEI) are the best drug candidates: they're small, non-polar, and highly active.")
     
     df = st.session_state.analysis_df
     
@@ -781,12 +664,7 @@ def render_sidebar():
             st.write(f"**Mode:** {st.session_state.replicate_mode}")
         
         st.markdown("---")
-        st.markdown("""
-        <div style="text-align: center; font-size: 0.8rem; color: #6c757d;">
-            HTS Screening Analysis v1.0<br>
-            Drug Discovery Pipeline
-        </div>
-        """, unsafe_allow_html=True)
+        st.caption("ITR ENAMINE LIBRARY v1.0 | Drug Discovery Pipeline")
         
         return selected
 
@@ -801,7 +679,7 @@ def main():
     # Title
     st.markdown(f"# {APP_TITLE}")
     st.markdown("*Antibiotic Discovery • ENAMINE Library • 384-well Plate Analysis*")
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.divider()
     
     # Route based on selection
     if not st.session_state.processing_done:
@@ -825,12 +703,8 @@ def main():
             render_qc_section()
     
     # Footer
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="footer">
-        Built for Antibiotic Discovery Research • Inspired by Stokes 2020 Halicin Paper
-    </div>
-    """, unsafe_allow_html=True)
+    st.divider()
+    st.caption("Built for Antibiotic Discovery Research • Inspired by Stokes 2020 Halicin Paper")
 
 
 if __name__ == "__main__":
