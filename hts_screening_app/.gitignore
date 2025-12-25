@@ -6,6 +6,9 @@ Enamine_plate layout1.xlsx
 # Keep sample/template files if needed
 !sample_plate.xlsx
 
+# Email drafts and documentation
+email.txt
+
 # Python cache
 __pycache__/
 *.pyc

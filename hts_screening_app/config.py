@@ -1,5 +1,5 @@
 """
-Configuration constants for ITR ENAMINE LIBRARY Screening App
+Configuration constants for ENAMINE LIBRARY Screening App
 """
 
 from string import ascii_uppercase
@@ -32,6 +32,6 @@ COLOR_HIGHLIGHT = "#e74c3c"  # Red for top candidates
 COLOR_NORMAL = "#95a5a6"  # Gray for normal points
 
 # App styling
-APP_TITLE = "🧬 ITR ENAMINE LIBRARY Screening Data Analysis"
+APP_TITLE = "🧬 ENAMINE LIBRARY Screening Data Analysis"
 APP_ICON = "🧬"
 

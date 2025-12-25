@@ -1,8 +1,8 @@
 """
-ITR ENAMINE LIBRARY Screening Data Analysis Streamlit App
+ENAMINE LIBRARY Screening Data Analysis Streamlit App
 
 A comprehensive application for analyzing High-Throughput Screening data
-from ITR ENAMINE compound library plates.
+from ENAMINE compound library plates.
 """
 
 import io
@@ -31,7 +31,7 @@ from utils.plotting import (
 
 # Page configuration
 st.set_page_config(
-    page_title="ITR ENAMINE LIBRARY Analysis",
+    page_title="ENAMINE LIBRARY Analysis",
     page_icon=APP_ICON,
     layout="wide",
     initial_sidebar_state="expanded"
@@ -749,7 +749,7 @@ def render_sidebar():
             st.write(f"**Mode:** {st.session_state.replicate_mode}")
         
         st.markdown("---")
-        st.caption("ITR ENAMINE LIBRARY v1.0 | Drug Discovery Pipeline")
+        st.caption("ENAMINE LIBRARY v1.0 | Drug Discovery Pipeline")
         
         return selected
 

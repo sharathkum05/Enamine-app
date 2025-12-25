@@ -38,7 +38,12 @@ env/
 # Session files
 *.pkl
 
-# Large data files (optional - uncomment if needed)
-# *.xlsx
+# Large data files - ENAMINE library
+Enamine_library.xlsx
+Enamine_plate layout1.xlsx
+*.xlsx
+
+# Email drafts
+email.txt
 
 

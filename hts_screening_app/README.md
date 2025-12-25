@@ -1,6 +1,6 @@
-# 🧬 ITR ENAMINE LIBRARY Screening Data Analysis App
+# 🧬 ENAMINE LIBRARY Screening Data Analysis App
 
-A comprehensive Streamlit application for analyzing High-Throughput Screening data from ITR ENAMINE compound library plates. Built for antibiotic discovery research.
+A comprehensive Streamlit application for analyzing High-Throughput Screening data from ENAMINE compound library plates. Built for antibiotic discovery research.
 
 ## Overview
 
