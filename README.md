@@ -1,1 +1,1 @@
-# Enamine Library screening app
+# App
