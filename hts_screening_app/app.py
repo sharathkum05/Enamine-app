@@ -1,8 +1,8 @@
 """
-ENAMINE LIBRARY Screening Data Analysis Streamlit App
+ENAMINE LIBRARY Screening Data Analysis Streamlit Application
 
 A comprehensive application for analyzing High-Throughput Screening data
-from ENAMINE compound library plates.
+from ENAMINE compound library plates (plates are made in house by ENAMINE).
 """
 
 import io
