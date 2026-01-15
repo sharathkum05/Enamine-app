@@ -8,12 +8,13 @@ import pandas as pd
 
 def calculate_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculate SPEI and PPEI metrics.
+    Calculate SPEI, PPEI, and PSA_MW_ratio metrics.
     
     Adds columns:
         - Per_one: Pct_Inhibition / 100
         - SPEI: Per_one / (MW * 0.001)
         - PPEI: Per_one / (TPSA * 0.01)
+        - PSA_MW_ratio: 10 * TPSA / MW (equivalent to SPEI / PPEI)
     
     Args:
         df: DataFrame with Pct_Inhibition, MW, and TPSA columns
@@ -47,6 +48,18 @@ def calculate_metrics(df: pd.DataFrame) -> pd.DataFrame:
         )
     else:
         df['PPEI'] = np.nan
+    
+    # Calculate 10xPSA/MW ratio (polarity to size ratio)
+    # Formula: 10 × TPSA / MW (equivalent to SPEI / PPEI)
+    # Lower values suggest better drug-like properties
+    if 'TPSA' in df.columns and 'MW' in df.columns:
+        df['PSA_MW_ratio'] = df.apply(
+            lambda row: (10 * row['TPSA']) / row['MW']
+            if pd.notna(row['TPSA']) and pd.notna(row['MW']) and row['MW'] > 0 else np.nan,
+            axis=1
+        )
+    else:
+        df['PSA_MW_ratio'] = np.nan
     
     return df
 

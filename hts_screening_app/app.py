@@ -2,7 +2,7 @@
 ENAMINE LIBRARY Screening Data Analysis Streamlit Application
 
 A comprehensive application for analyzing High-Throughput Screening data
-from ENAMINE compound library plates (plates are made in house by ENAMINE).
+from ENAMINE compound library plates.
 """
 
 import io
@@ -13,6 +13,7 @@ from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
+import plotly.io as pio
 import streamlit as st
 
 from config import (
@@ -27,6 +28,22 @@ from utils.plotting import (
     plot_inhibition_histogram, plot_normalized_histogram, 
     plot_cartesian, plot_qc_heatmap
 )
+from utils.structure_viewer import smiles_to_image, get_molecule_info
+
+
+def create_png_download_button(fig, filename, button_key):
+    """Create a PNG download button for a Plotly figure."""
+    try:
+        img_bytes = pio.to_image(fig, format='png', width=1200, height=600, scale=2)
+        st.download_button(
+            label="📥 Download as PNG",
+            data=img_bytes,
+            file_name=f"{filename}.png",
+            mime="image/png",
+            key=button_key
+        )
+    except Exception as e:
+        st.error(f"PNG export failed: {e}")
 
 
 # Page configuration
@@ -357,6 +374,11 @@ def render_plate_selector():
     st.markdown("## 📊 Plate Selection")
     st.write("Analyze individual plates or all plates combined")
     
+    # Check if data is available
+    if st.session_state.analysis_df is None:
+        st.warning("⚠️ Please upload and process data first before selecting plates.")
+        return
+    
     # Get unique plate numbers from the data
     available_plates = sorted(st.session_state.analysis_df['Plate'].unique())
     
@@ -398,6 +420,7 @@ def render_histogram_section():
     # Create histogram
     fig = plot_inhibition_histogram(df, st.session_state.replicate_mode)
     st.plotly_chart(fig, use_container_width=True)
+    create_png_download_button(fig, "percent_inhibition_histogram", "png_inhibition")
     
     # Statistics
     stats = calculate_summary_stats(df, 'Pct_Inhibition')
@@ -428,36 +451,74 @@ def render_histogram_section():
 
 
 def render_normalized_histogram_section():
-    """Render Task 1B: Size-Normalized Activity Histogram."""
+    """Render Task 1B: Size-Normalized Activity Histograms colored by 10xPSA/MW bins."""
     st.markdown("## 📈 Task 1B: Size-Normalized Activity")
     
     # Use filtered data if plate selector has been used
     df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
     
     # Ensure metrics are calculated
-    if 'SPEI' not in df.columns:
+    if 'SPEI' not in df.columns or 'PSA_MW_ratio' not in df.columns:
         df = calculate_metrics(df)
         if st.session_state.get('current_analysis_df') is not None:
             st.session_state.current_analysis_df = df
         else:
             st.session_state.analysis_df = df
     
-    # SPEI Histogram
+    # SPEI Histogram - Stacked by 10xPSA/MW bins
     st.subheader("Size-Normalized Activity (SPEI)")
-    st.info("**Formula:** SPEI = (% Inhibition / 100) / (MW × 0.001)\n\n*Higher values indicate more potent compounds per unit mass - smaller molecules with same activity are preferred.*")
+    st.info("**Formula:** SPEI = (% Inhibition / 100) / (MW × 0.001)\n\n*Histogram colored by 10×PSA/MW ratio bins to show relationship between size efficiency and polarity/size ratio.*")
     
     # Filter to only positive SPEI values
-    total_spei = len(df)
     spei_df = df[df['SPEI'] > 0].copy()
-    filtered_spei = len(spei_df)
-    excluded_spei = total_spei - filtered_spei
     
-    st.info(f"📊 Showing {filtered_spei:,} compounds with SPEI > 0 ({excluded_spei:,} negative values excluded)")
+    st.info(f"📊 Showing {len(spei_df):,} compounds with SPEI > 0")
     
-    # Create histogram with filtered data
-    fig = plot_normalized_histogram(spei_df, st.session_state.replicate_mode)
-    fig.update_xaxes(range=[0, None])  # Start x-axis from 0
-    st.plotly_chart(fig, use_container_width=True)
+    # Create bins for 10xPSA/MW
+    num_bins = 6
+    spei_df['10PSAoMW_bin'] = pd.cut(
+        spei_df['PSA_MW_ratio'], 
+        bins=num_bins, 
+        precision=2
+    ).apply(lambda x: f"{x.left:.2f} - {x.right:.2f}" if pd.notna(x) else "N/A")
+    
+    # Define color palette (matching professor's image)
+    color_palette = ['#87CEEB', '#1a237e', '#7CB342', '#2E7D32', '#FF7043', '#FFD54F']
+    
+    # Get unique bins in order
+    bin_order = spei_df.groupby('10PSAoMW_bin')['PSA_MW_ratio'].min().sort_values().index.tolist()
+    
+    # Create stacked histogram
+    import plotly.express as px
+    fig_spei = px.histogram(
+        spei_df,
+        x='SPEI',
+        color='10PSAoMW_bin',
+        category_orders={'10PSAoMW_bin': bin_order},
+        color_discrete_sequence=color_palette,
+        nbins=30,
+        title='Count vs SPEI',
+        labels={'SPEI': 'SPEI', 'count': 'Count', '10PSAoMW_bin': '10PSAoMW'}
+    )
+    
+    fig_spei.update_layout(
+        xaxis_title="SPEI",
+        yaxis_title="Count",
+        legend_title="10PSAoMW",
+        barmode='stack',
+        template='plotly_white',
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.2,
+            xanchor="center",
+            x=0.5
+        )
+    )
+    fig_spei.update_xaxes(range=[0, None])
+    
+    st.plotly_chart(fig_spei, use_container_width=True)
+    create_png_download_button(fig_spei, "spei_histogram_colored", "png_spei_colored")
     
     # Statistics using filtered data
     stats = calculate_summary_stats(spei_df, 'SPEI')
@@ -478,46 +539,66 @@ def render_normalized_histogram_section():
         st.metric("Max", f"{stats['max']:.2f}")
     
     # Download filtered data
-    csv = spei_df[['Plate', 'Well', 'Pct_Inhibition', 'MW', 'SPEI']].to_csv(index=False)
+    csv = spei_df[['Plate', 'Well', 'Pct_Inhibition', 'MW', 'SPEI', 'PSA_MW_ratio', '10PSAoMW_bin']].to_csv(index=False)
     st.download_button(
         "📥 Download Data (CSV)",
         data=csv,
-        file_name="spei_data.csv",
-        mime="text/csv"
+        file_name="spei_data_with_bins.csv",
+        mime="text/csv",
+        key="download_spei_binned"
     )
     
     st.divider()
     
-    # PPEI Histogram
+    # PPEI Histogram - Stacked by 10xPSA/MW bins
     st.subheader("Polarity-Normalized Activity (PPEI)")
-    st.info("**Formula:** PPEI = (% Inhibition / 100) / (TPSA × 0.01)\n\n*Higher values indicate more potent compounds per unit polarity - less polar molecules with same activity are preferred for membrane penetration.*")
+    st.info("**Formula:** PPEI = (% Inhibition / 100) / (TPSA × 0.01)\n\n*Histogram colored by 10×PSA/MW ratio bins to show relationship between polarity efficiency and polarity/size ratio.*")
     
     # Filter to only positive PPEI values
-    total_ppei = len(df)
     ppei_df = df[df['PPEI'] > 0].copy()
-    filtered_ppei = len(ppei_df)
-    excluded_ppei = total_ppei - filtered_ppei
     
-    st.info(f"📊 Showing {filtered_ppei:,} compounds with PPEI > 0 ({excluded_ppei:,} negative values excluded)")
+    st.info(f"📊 Showing {len(ppei_df):,} compounds with PPEI > 0")
     
-    # Create PPEI histogram using plotly express with filtered data
-    import plotly.express as px
+    # Create bins for 10xPSA/MW (same bins as SPEI)
+    ppei_df['10PSAoMW_bin'] = pd.cut(
+        ppei_df['PSA_MW_ratio'], 
+        bins=num_bins, 
+        precision=2
+    ).apply(lambda x: f"{x.left:.2f} - {x.right:.2f}" if pd.notna(x) else "N/A")
+    
+    # Get unique bins in order
+    bin_order_ppei = ppei_df.groupby('10PSAoMW_bin')['PSA_MW_ratio'].min().sort_values().index.tolist()
+    
+    # Create stacked histogram
     fig_ppei = px.histogram(
-        ppei_df,  # Use filtered data
+        ppei_df,
         x='PPEI',
-        nbins=50,
-        title='Polarity-Normalized Activity (PPEI)',
-        labels={'PPEI': 'PPEI = (% Inhibition / 100) / (TPSA × 0.01)'},
-        color_discrete_sequence=['#FF6B6B']  # Red color
+        color='10PSAoMW_bin',
+        category_orders={'10PSAoMW_bin': bin_order_ppei},
+        color_discrete_sequence=color_palette,
+        nbins=30,
+        title='Count vs PPEI',
+        labels={'PPEI': 'PPEI', 'count': 'Count', '10PSAoMW_bin': '10PSAoMW'}
     )
+    
     fig_ppei.update_layout(
-        xaxis_title="PPEI = (% Inhibition / 100) / (TPSA × 0.01)",
+        xaxis_title="PPEI",
         yaxis_title="Count",
-        showlegend=False,
-        template='plotly_white'
+        legend_title="10PSAoMW",
+        barmode='stack',
+        template='plotly_white',
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.2,
+            xanchor="center",
+            x=0.5
+        )
     )
-    fig_ppei.update_xaxes(range=[0, None])  # Start x-axis from 0
+    fig_ppei.update_xaxes(range=[0, None])
+    
     st.plotly_chart(fig_ppei, use_container_width=True)
+    create_png_download_button(fig_ppei, "ppei_histogram_colored", "png_ppei_colored")
     
     # PPEI Statistics using filtered data
     ppei_stats = calculate_summary_stats(ppei_df, 'PPEI')
@@ -538,12 +619,95 @@ def render_normalized_histogram_section():
         st.metric("Max", f"{ppei_stats['max']:.2f}")
     
     # Download filtered PPEI data
-    csv = ppei_df[['Plate', 'Well', 'Pct_Inhibition', 'TPSA', 'PPEI']].to_csv(index=False)
+    csv = ppei_df[['Plate', 'Well', 'Pct_Inhibition', 'TPSA', 'PPEI', 'PSA_MW_ratio', '10PSAoMW_bin']].to_csv(index=False)
     st.download_button(
         "📥 Download Data (CSV)",
         data=csv,
-        file_name="ppei_data.csv",
-        mime="text/csv"
+        file_name="ppei_data_with_bins.csv",
+        mime="text/csv",
+        key="download_ppei_binned"
+    )
+
+
+def render_psa_mw_histogram_section():
+    """Render Task 1C: 10xPSA/MW Distribution Histogram."""
+    st.markdown("## 📊 Task 1C: 10xPSA/MW Distribution")
+    
+    st.info("""
+**Formula:** 10 × TPSA / MW (equivalent to SPEI / PPEI)
+
+*This ratio indicates the balance between polarity and size. Lower values suggest compounds that are relatively small for their polarity - potentially better drug-like properties.*
+""")
+    
+    # Use filtered data if plate selector has been used
+    df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
+    
+    # Ensure metrics are calculated
+    if 'PSA_MW_ratio' not in df.columns:
+        df = calculate_metrics(df)
+        if 'current_analysis_df' in st.session_state:
+            st.session_state.current_analysis_df = df
+        else:
+            st.session_state.analysis_df = df
+    
+    # Filter to only positive values
+    total_psa_mw = len(df)
+    psa_mw_df = df[df['PSA_MW_ratio'] > 0].copy()
+    filtered_psa_mw = len(psa_mw_df)
+    excluded_psa_mw = total_psa_mw - filtered_psa_mw
+    
+    st.info(f"📊 Showing {filtered_psa_mw:,} compounds with 10xPSA/MW > 0 ({excluded_psa_mw:,} negative values excluded)")
+    
+    # Create histogram with filtered data
+    import plotly.express as px
+    fig_psa_mw = px.histogram(
+        psa_mw_df,
+        x='PSA_MW_ratio',
+        nbins=50,
+        title='Distribution of 10×PSA/MW',
+        labels={'PSA_MW_ratio': '10 × TPSA / MW'},
+        color_discrete_sequence=['#9B59B6']  # Purple color
+    )
+    
+    fig_psa_mw.update_layout(
+        xaxis_title="10 × TPSA / MW",
+        yaxis_title="Count",
+        showlegend=False,
+        template='plotly_white'
+    )
+    
+    fig_psa_mw.update_xaxes(range=[0, None])  # Start x-axis from 0
+    st.plotly_chart(fig_psa_mw, use_container_width=True)
+    create_png_download_button(fig_psa_mw, "10xPSA_MW_histogram", "png_psa_mw")
+    
+    # Statistics using filtered data
+    psa_mw_stats = calculate_summary_stats(psa_mw_df, 'PSA_MW_ratio')
+    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    
+    with col1:
+        st.metric("Count", f"{psa_mw_stats['count']:,}")
+    with col2:
+        st.metric("Mean", f"{psa_mw_stats['mean']:.2f}")
+    with col3:
+        st.metric("Median", f"{psa_mw_stats['median']:.2f}")
+    with col4:
+        st.metric("Std Dev", f"{psa_mw_stats['std']:.2f}")
+    with col5:
+        st.metric("Min", f"{psa_mw_stats['min']:.2f}")
+    with col6:
+        st.metric("Max", f"{psa_mw_stats['max']:.2f}")
+    
+    # Download filtered data
+    available_cols = ['Plate', 'Well', 'catalog_number', 'PSA_MW_ratio', 'SPEI', 'PPEI', 'MW', 'TPSA']
+    export_cols = [c for c in available_cols if c in psa_mw_df.columns]
+    csv = psa_mw_df[export_cols].to_csv(index=False)
+    st.download_button(
+        "📥 Download Data (CSV)",
+        data=csv,
+        file_name="10xPSA_MW_data.csv",
+        mime="text/csv",
+        key="download_psa_mw_csv"
     )
 
 
@@ -596,6 +760,19 @@ def render_cartesian_section():
     # Use filtered data if plate selector has been used
     df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
     
+    # Check if data is available
+    if df is None or df.empty:
+        st.warning("⚠️ No analysis data available. Please upload and process data first.")
+        return
+    
+    # Ensure metrics are calculated
+    if 'SPEI' not in df.columns or 'PPEI' not in df.columns or 'PSA_MW_ratio' not in df.columns:
+        df = calculate_metrics(df)
+        if st.session_state.get('current_analysis_df') is not None:
+            st.session_state.current_analysis_df = df
+        else:
+            st.session_state.analysis_df = df
+    
     # Filter data to only show positive values (cut beyond origin 0,0)
     total_points = len(df)
     cartesian_df = df[(df['SPEI'] > 0) & (df['PPEI'] > 0)].copy()
@@ -604,7 +781,7 @@ def render_cartesian_section():
     
     st.info(f"📊 Showing {filtered_points:,} compounds with SPEI > 0 and PPEI > 0. ({excluded_points:,} compounds with negative values excluded)")
     
-    # Controls
+    # CONTROLS ROW 1: Top candidates threshold and ranking metric
     col1, col2 = st.columns(2)
     
     with col1:
@@ -614,7 +791,8 @@ def render_cartesian_section():
             max_value=20,
             value=5,
             step=1,
-            help="Select the top X% of compounds to highlight"
+            help="Select the top X% of compounds to highlight",
+            key="top_percentile_slider"
         )
     
     with col2:
@@ -626,26 +804,180 @@ def render_cartesian_section():
                 'spei': 'SPEI only',
                 'ppei': 'PPEI only'
             }[x],
-            horizontal=True
+            horizontal=True,
+            key="ranking_metric_radio"
         )
     
-    # Create plot using filtered cartesian_df
-    fig = plot_cartesian(cartesian_df, top_percentile, st.session_state.replicate_mode, metric)
+    # ============================================
+    # PLOT 1: Original - Top Candidates with Red Stars
+    # ============================================
+    st.markdown("### 📍 View 1: Top Candidates Highlighted")
+    st.caption("Gray dots = all compounds | Red stars = top candidates")
     
-    # Set axes to start from 0
-    fig.update_xaxes(range=[0, None])
-    fig.update_yaxes(range=[0, None])
+    # Calculate top candidates
+    from utils.metrics import get_top_candidates
+    df_ranked = get_top_candidates(cartesian_df.copy(), top_percentile, metric)
+    top_df_viz = df_ranked[df_ranked['Is_Top']].copy()
+    regular_df = df_ranked[~df_ranked['Is_Top']].copy()
     
-    st.plotly_chart(fig, use_container_width=True)
+    # CREATE ORIGINAL PLOT with red stars
+    import plotly.graph_objects as go
+    
+    fig1 = go.Figure()
+    
+    # Plot regular compounds (gray)
+    fig1.add_trace(go.Scatter(
+        x=regular_df['PPEI'],
+        y=regular_df['SPEI'],
+        mode='markers',
+        marker=dict(
+            size=6,
+            color='rgba(150, 150, 150, 0.5)',
+            opacity=0.6
+        ),
+        text=regular_df.get('catalog_number', ''),
+        hovertemplate=(
+            "<b>%{text}</b><br>" +
+            "SPEI: %{y:.3f}<br>" +
+            "PPEI: %{x:.3f}<br>" +
+            "<extra></extra>"
+        ),
+        name='Compounds',
+        showlegend=True
+    ))
+    
+    # Plot top candidates as red stars
+    if not top_df_viz.empty:
+        fig1.add_trace(go.Scatter(
+            x=top_df_viz['PPEI'],
+            y=top_df_viz['SPEI'],
+            mode='markers',
+            marker=dict(
+                size=12,
+                symbol='star',
+                color='#FF0000',
+                line=dict(color='#8B0000', width=1.5)
+            ),
+            text=top_df_viz.get('catalog_number', ''),
+            hovertemplate=(
+                "<b>⭐ %{text}</b><br>" +
+                "SPEI: %{y:.3f}<br>" +
+                "PPEI: %{x:.3f}<br>" +
+                "<extra></extra>"
+            ),
+            name=f'Top {top_percentile}% (Best Candidates)',
+            showlegend=True
+        ))
+    
+    # Update layout for original plot
+    fig1.update_layout(
+        title='SPEI vs PPEI: Drug Efficiency Plot',
+        xaxis_title='PPEI (Polarity Efficiency) → Higher = Better Membrane Penetration',
+        yaxis_title='SPEI (Size Efficiency) → Higher = More Potent per Unit Mass',
+        xaxis=dict(range=[0, None]),
+        yaxis=dict(range=[0, None]),
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01
+        ),
+        template='plotly_white',
+        hovermode='closest'
+    )
+    
+    st.plotly_chart(fig1, use_container_width=True)
+    create_png_download_button(fig1, "spei_vs_ppei_top_candidates", "png_cartesian_stars")
+    
+    # ============================================
+    # PLOT 2: New - Colored by 10xPSA/MW Bins
+    # ============================================
+    st.markdown("---")
+    st.markdown("### 🎨 View 2: Colored by 10×PSA/MW Ratio")
+    st.caption("Categorical coloring showing polarity/size distribution")
+    
+    # Calculate PSA_MW_ratio and create bins
+    if 'PSA_MW_ratio' not in cartesian_df.columns:
+        cartesian_df['PSA_MW_ratio'] = (10 * cartesian_df['TPSA']) / cartesian_df['MW']
+    
+    # Create bins for 10xPSA/MW (same as histograms)
+    num_bins = 6
+    cartesian_df['10PSAoMW_bin'] = pd.cut(
+        cartesian_df['PSA_MW_ratio'], 
+        bins=num_bins, 
+        precision=2
+    ).apply(lambda x: f"{x.left:.2f} - {x.right:.2f}" if pd.notna(x) else "N/A")
+    
+    # Define color palette (matching professor's image and histograms)
+    color_palette = ['#87CEEB', '#1a237e', '#7CB342', '#2E7D32', '#FF7043', '#FFD54F']
+    
+    # Get unique bins in order
+    bin_order = cartesian_df.groupby('10PSAoMW_bin')['PSA_MW_ratio'].min().sort_values().index.tolist()
+    
+    # Add bins to df_ranked for the second plot
+    df_ranked_with_bins = df_ranked.copy()
+    if '10PSAoMW_bin' not in df_ranked_with_bins.columns:
+        # Merge bins from cartesian_df
+        df_ranked_with_bins = df_ranked_with_bins.merge(
+            cartesian_df[['Plate', 'Well', '10PSAoMW_bin']], 
+            on=['Plate', 'Well'], 
+            how='left'
+        )
+    
+    # Option to show only top candidates
+    show_top_only = st.checkbox("Show top candidates only", value=False, key="show_top_only_binned")
+    
+    # Filter if checkbox selected
+    plot_df = df_ranked_with_bins[df_ranked_with_bins['Is_Top']] if show_top_only else df_ranked_with_bins
+    
+    # CREATE SCATTER PLOT colored by 10PSAoMW bins
+    import plotly.express as px
+    
+    fig2 = px.scatter(
+        plot_df,
+        x='PPEI',
+        y='SPEI',
+        color='10PSAoMW_bin',
+        category_orders={'10PSAoMW_bin': bin_order},
+        color_discrete_sequence=color_palette,
+        title='SPEI vs PPEI (Colored by 10×PSA/MW)',
+        labels={'PPEI': 'PPEI', 'SPEI': 'SPEI', '10PSAoMW_bin': '10PSAoMW'},
+        hover_data=['catalog_number', 'Pct_Inhibition', 'MW', 'TPSA', 'PSA_MW_ratio']
+    )
+    
+    fig2.update_traces(marker=dict(size=8, opacity=0.7))
+    
+    # Update layout
+    fig2.update_layout(
+        xaxis_title='PPEI (Polarity Efficiency) → Higher = Better Membrane Penetration',
+        yaxis_title='SPEI (Size Efficiency) → Higher = More Potent per Unit Mass',
+        xaxis=dict(range=[0, None]),
+        yaxis=dict(range=[0, None]),
+        legend_title="10PSAoMW",
+        template='plotly_white',
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.15,
+            xanchor="center",
+            x=0.5
+        ),
+        hovermode='closest'
+    )
+    
+    st.plotly_chart(fig2, use_container_width=True)
+    create_png_download_button(fig2, "spei_vs_ppei_colored_by_bins", "png_cartesian_colored")
     
     # Top candidates table
+    st.markdown("---")
     st.markdown("### 🏆 Top Candidates")
     
-    df_ranked = get_top_candidates(cartesian_df.copy(), top_percentile, metric)
-    top_df = df_ranked[df_ranked['Is_Top']].sort_values('Rank_Score', ascending=False)
+    # Use df_ranked_with_bins to include the bin column
+    top_df = df_ranked_with_bins[df_ranked_with_bins['Is_Top']].sort_values('Rank_Score', ascending=False)
     
-    display_cols = ['Plate', 'Well', 'catalog_number', 'Chemical_name', 
-                    'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI']
+    display_cols = ['Plate', 'Well', 'catalog_number', 'Smiles', 'Chemical_name', 
+                    'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI', 'PSA_MW_ratio', '10PSAoMW_bin']
     available_cols = [c for c in display_cols if c in top_df.columns]
     
     st.dataframe(
@@ -657,11 +989,90 @@ def render_cartesian_section():
     # Download top candidates data
     csv = top_df[available_cols].to_csv(index=False)
     st.download_button(
-        "📥 Download Top Candidates (CSV)",
+        "📥 Download Top Candidates (CSV with SMILES)",
         data=csv,
-        file_name="top_candidates.csv",
-        mime="text/csv"
+        file_name="top_candidates_with_smiles.csv",
+        mime="text/csv",
+        key="download_top_candidates"
     )
+    
+    # ============================================
+    # CHEMICAL STRUCTURE VIEWER
+    # ============================================
+    st.markdown("---")
+    st.subheader("🔬 View Compound Structure")
+    st.write("Select a top candidate to view its chemical structure:")
+    
+    if not top_df.empty:
+        # Create display labels for the dropdown
+        top_df_display = top_df.copy()
+        top_df_display['display_label'] = (
+            top_df_display['catalog_number'].astype(str) + " | " +
+            "SPEI: " + top_df_display['SPEI'].round(2).astype(str) + " | " +
+            "PPEI: " + top_df_display['PPEI'].round(2).astype(str) + " | " +
+            "%Inh: " + top_df_display['Pct_Inhibition'].round(1).astype(str) + "%"
+        )
+        
+        # Dropdown to select compound
+        selected_label = st.selectbox(
+            "Select a compound:",
+            options=["-- Select a compound --"] + top_df_display['display_label'].tolist(),
+            key="compound_selector"
+        )
+        
+        if selected_label != "-- Select a compound --":
+            # Get the selected compound data
+            selected_row = top_df_display[
+                top_df_display['display_label'] == selected_label
+            ].iloc[0]
+            
+            # Get SMILES - check for correct column name
+            smiles = selected_row.get('Smiles') or selected_row.get('SMILES') or selected_row.get('smiles')
+            
+            if smiles and not pd.isna(smiles):
+                col1, col2 = st.columns([1, 1])
+                
+                with col1:
+                    st.markdown("**Molecular Structure:**")
+                    # Generate and display structure image
+                    img_buffer = smiles_to_image(smiles, size=(350, 350))
+                    if img_buffer:
+                        st.image(img_buffer, caption=f"{selected_row['catalog_number']}", width=350)
+                    else:
+                        st.warning("Could not generate structure image")
+                
+                with col2:
+                    st.markdown("**Compound Details:**")
+                    st.markdown(f"**Catalog Number:** `{selected_row['catalog_number']}`")
+                    st.markdown(f"**SMILES:** `{str(smiles)[:50]}{'...' if len(str(smiles)) > 50 else ''}`")
+                    st.code(smiles, language=None)
+                    
+                    st.markdown("---")
+                    st.markdown("**Screening Metrics:**")
+                    
+                    metrics_col1, metrics_col2 = st.columns(2)
+                    with metrics_col1:
+                        st.metric("% Inhibition", f"{selected_row['Pct_Inhibition']:.2f}%")
+                        st.metric("SPEI", f"{selected_row['SPEI']:.3f}")
+                    with metrics_col2:
+                        st.metric("PPEI", f"{selected_row['PPEI']:.3f}")
+                        st.metric("MW", f"{selected_row['MW']:.2f}")
+                    
+                    st.markdown("---")
+                    st.markdown("**Location:**")
+                    st.write(f"Plate: {selected_row['Plate']} | Well: {selected_row['Well']}")
+                    
+                    # Get additional molecule info
+                    mol_info = get_molecule_info(smiles)
+                    if mol_info:
+                        st.markdown("---")
+                        st.markdown("**Molecular Info:**")
+                        st.write(f"Formula: {mol_info['formula']}")
+                        st.write(f"Atoms: {mol_info['num_atoms']} | Bonds: {mol_info['num_bonds']} | Rings: {mol_info['num_rings']}")
+            else:
+                st.warning("No SMILES data available for this compound")
+    else:
+        st.info("No top candidates to display. Adjust the threshold slider above.")
 
 
 def render_export_section():
@@ -729,6 +1140,7 @@ def render_sidebar():
                 '📊 Plate Selection',
                 '📈 Task 1A: %Inhibition',
                 '📈 Task 1B: Normalized',
+                '📊 Task 1C: 10xPSA/MW',
                 '🧮 Metrics',
                 '🎯 Cartesian Plot',
                 '📤 Export'
@@ -780,6 +1192,8 @@ def main():
             render_histogram_section()
         elif selected == '📈 Task 1B: Normalized':
             render_normalized_histogram_section()
+        elif selected == '📊 Task 1C: 10xPSA/MW':
+            render_psa_mw_histogram_section()
         elif selected == '🧮 Metrics':
             render_metrics_section()
         elif selected == '🎯 Cartesian Plot':
