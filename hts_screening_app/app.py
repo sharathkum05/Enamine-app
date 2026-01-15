@@ -891,26 +891,34 @@ def render_cartesian_section():
     create_png_download_button(fig1, "spei_vs_ppei_top_candidates", "png_cartesian_stars")
     
     # ============================================
-    # PLOT 2: New - Colored by 10xPSA/MW Bins
+    # PLOT 2: New - Colored by 10xPSA/MW Bins with Wedge Lines
     # ============================================
     st.markdown("---")
     st.markdown("### 🎨 View 2: Colored by 10×PSA/MW Ratio")
-    st.caption("Categorical coloring showing polarity/size distribution")
+    st.caption("Categorical coloring showing polarity/size distribution with wedge boundaries")
     
     # Calculate PSA_MW_ratio and create bins
     if 'PSA_MW_ratio' not in cartesian_df.columns:
         cartesian_df['PSA_MW_ratio'] = (10 * cartesian_df['TPSA']) / cartesian_df['MW']
     
-    # Create bins for 10xPSA/MW (same as histograms)
-    num_bins = 6
+    # Create bins with FIXED 0.45 Å²/Dalton intervals (not equal-width)
+    min_ratio = 0  # Start from 0
+    max_ratio = cartesian_df['PSA_MW_ratio'].max()
+    wedge_spacing = 0.45  # Fixed spacing as per professor's specification
+    
+    # Create bin edges with 0.45 intervals
+    bin_edges = np.arange(min_ratio, max_ratio + wedge_spacing, wedge_spacing)
+    
     cartesian_df['10PSAoMW_bin'] = pd.cut(
         cartesian_df['PSA_MW_ratio'], 
-        bins=num_bins, 
+        bins=bin_edges, 
         precision=2
     ).apply(lambda x: f"{x.left:.2f} - {x.right:.2f}" if pd.notna(x) else "N/A")
     
-    # Define color palette (matching professor's image and histograms)
-    color_palette = ['#87CEEB', '#1a237e', '#7CB342', '#2E7D32', '#FF7043', '#FFD54F']
+    # Define color palette - extend to match number of bins
+    base_colors = ['#87CEEB', '#1a237e', '#7CB342', '#2E7D32', '#FF7043', '#FFD54F', '#9C27B0', '#FF4081']
+    num_actual_bins = len(cartesian_df['10PSAoMW_bin'].unique())
+    color_palette = (base_colors * ((num_actual_bins // len(base_colors)) + 1))[:num_actual_bins]
     
     # Get unique bins in order
     bin_order = cartesian_df.groupby('10PSAoMW_bin')['PSA_MW_ratio'].min().sort_values().index.tolist()
@@ -925,8 +933,38 @@ def render_cartesian_section():
             how='left'
         )
     
-    # Option to show only top candidates
-    show_top_only = st.checkbox("Show top candidates only", value=False, key="show_top_only_binned")
+    # ============================================
+    # PER-WEDGE TOP CANDIDATE SELECTION
+    # ============================================
+    # Calculate distance from origin for each compound
+    df_ranked_with_bins['Distance_from_Origin'] = np.sqrt(
+        df_ranked_with_bins['SPEI']**2 + df_ranked_with_bins['PPEI']**2
+    )
+    
+    # Select top N compounds per wedge (furthest from origin in each wedge)
+    compounds_per_wedge = 10  # Number of top compounds to select from each wedge
+    top_per_wedge_list = []
+    
+    for bin_name in bin_order:
+        wedge_compounds = df_ranked_with_bins[df_ranked_with_bins['10PSAoMW_bin'] == bin_name]
+        if not wedge_compounds.empty:
+            top_in_wedge = wedge_compounds.nlargest(compounds_per_wedge, 'Distance_from_Origin')
+            top_per_wedge_list.append(top_in_wedge)
+    
+    # Combine all per-wedge top candidates
+    if top_per_wedge_list:
+        top_per_wedge_df = pd.concat(top_per_wedge_list, ignore_index=True)
+        # Mark these as per-wedge top candidates
+        df_ranked_with_bins['Is_Top_PerWedge'] = df_ranked_with_bins.index.isin(top_per_wedge_df.index)
+    else:
+        df_ranked_with_bins['Is_Top_PerWedge'] = False
+    
+    # Options for display
+    col_a, col_b = st.columns(2)
+    with col_a:
+        show_top_only = st.checkbox("Show top candidates only", value=False, key="show_top_only_binned")
+    with col_b:
+        show_wedge_lines = st.checkbox("Show wedge boundary lines", value=True, key="show_wedge_lines")
     
     # Filter if checkbox selected
     plot_df = df_ranked_with_bins[df_ranked_with_bins['Is_Top']] if show_top_only else df_ranked_with_bins
@@ -941,12 +979,110 @@ def render_cartesian_section():
         color='10PSAoMW_bin',
         category_orders={'10PSAoMW_bin': bin_order},
         color_discrete_sequence=color_palette,
-        title='SPEI vs PPEI (Colored by 10×PSA/MW)',
+        title='SPEI vs PPEI (Colored by 10×PSA/MW) - Wedges at 0.45 Å²/Dalton intervals',
         labels={'PPEI': 'PPEI', 'SPEI': 'SPEI', '10PSAoMW_bin': '10PSAoMW'},
         hover_data=['catalog_number', 'Pct_Inhibition', 'MW', 'TPSA', 'PSA_MW_ratio']
     )
     
     fig2.update_traces(marker=dict(size=8, opacity=0.7))
+    
+    # ============================================
+    # ADD RADIATING WEDGE LINES FROM ORIGIN
+    # ============================================
+    if show_wedge_lines:
+        # Get max x and y values for extending lines
+        max_ppei = plot_df['PPEI'].max()
+        max_spei = plot_df['SPEI'].max()
+        max_extent = max(max_ppei, max_spei) * 1.1  # Extend slightly beyond data
+        
+        # Draw wedge boundary lines (diagonal lines from origin)
+        for i, edge in enumerate(bin_edges[1:]):  # Skip first edge (0)
+            # Line equation: SPEI = (10PSA/MW) × PPEI
+            # or y = slope × x, where slope = edge value
+            slope = edge
+            x_end = max_extent
+            y_end = slope * x_end
+            
+            # Limit to plot bounds
+            if y_end > max_extent:
+                y_end = max_extent
+                x_end = y_end / slope if slope > 0 else max_extent
+            
+            # Add line from origin (0,0) to calculated endpoint
+            fig2.add_shape(
+                type="line",
+                x0=0, y0=0,
+                x1=x_end, y1=y_end,
+                line=dict(
+                    color="rgba(100, 100, 100, 0.4)",
+                    width=1.5,
+                    dash="dash"
+                ),
+                layer="below"
+            )
+        
+        # ============================================
+        # ADD MIDPOINT ANNOTATIONS WITH ARROWS
+        # ============================================
+        # Add annotations at the midpoint of each wedge
+        for i in range(len(bin_edges) - 1):
+            lower_edge = bin_edges[i]
+            upper_edge = bin_edges[i + 1]
+            midpoint_slope = (lower_edge + upper_edge) / 2
+            
+            # Position annotation at a reasonable distance from origin
+            annotation_distance = max_extent * 0.6
+            x_pos = annotation_distance / np.sqrt(1 + midpoint_slope**2)
+            y_pos = midpoint_slope * x_pos
+            
+            # Get bin label
+            bin_label = f"{lower_edge:.2f} - {upper_edge:.2f}"
+            
+            fig2.add_annotation(
+                x=x_pos,
+                y=y_pos,
+                text=f"<b>{bin_label}</b>",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=1.5,
+                arrowcolor="rgba(50, 50, 50, 0.6)",
+                ax=30,
+                ay=-30,
+                font=dict(size=10, color="rgba(50, 50, 50, 0.8)"),
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor="rgba(150, 150, 150, 0.5)",
+                borderwidth=1
+            )
+    
+    # ============================================
+    # ADD PER-WEDGE TOP CANDIDATES AS STARS
+    # ============================================
+    # Overlay red stars for per-wedge top candidates
+    top_per_wedge_viz = plot_df[plot_df['Is_Top_PerWedge']] if 'Is_Top_PerWedge' in plot_df.columns else pd.DataFrame()
+    
+    if not top_per_wedge_viz.empty:
+        fig2.add_trace(go.Scatter(
+            x=top_per_wedge_viz['PPEI'],
+            y=top_per_wedge_viz['SPEI'],
+            mode='markers',
+            marker=dict(
+                size=14,
+                symbol='star',
+                color='red',
+                line=dict(color='darkred', width=1.5)
+            ),
+            text=top_per_wedge_viz['catalog_number'],
+            hovertemplate=(
+                "<b>⭐ Per-Wedge Top: %{text}</b><br>" +
+                "SPEI: %{y:.3f}<br>" +
+                "PPEI: %{x:.3f}<br>" +
+                "10PSA/MW: " + top_per_wedge_viz['PSA_MW_ratio'].round(3).astype(str) + "<br>" +
+                "<extra></extra>"
+            ),
+            name='Top Per Wedge',
+            showlegend=True
+        ))
     
     # Update layout
     fig2.update_layout(
