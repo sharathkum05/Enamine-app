@@ -7,14 +7,19 @@ import io
 import pandas as pd
 
 # Try to import RDKit - it may not be available in all environments
+RDKIT_AVAILABLE = False
+RDKIT_IMPORT_ERROR = None
+Chem = None
+Draw = None
+
 try:
     from rdkit import Chem
     from rdkit.Chem import Draw
     RDKIT_AVAILABLE = True
-except ImportError:
-    RDKIT_AVAILABLE = False
-    Chem = None
-    Draw = None
+except ImportError as e:
+    RDKIT_IMPORT_ERROR = str(e)
+except Exception as e:
+    RDKIT_IMPORT_ERROR = f"Unexpected error: {str(e)}"
 
 
 def smiles_to_image(smiles, size=(350, 350)):

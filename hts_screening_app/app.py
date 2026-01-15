@@ -1003,10 +1003,18 @@ def render_cartesian_section():
     st.subheader("🔬 View Compound Structure")
     
     # Check if RDKit is available
-    from utils.structure_viewer import RDKIT_AVAILABLE
+    from utils.structure_viewer import RDKIT_AVAILABLE, RDKIT_IMPORT_ERROR
     if not RDKIT_AVAILABLE:
         st.warning("⚠️ Chemical structure viewer is not available. RDKit library could not be loaded. SMILES data is still available in CSV exports.")
-    else:
+        
+        # Show debug info if DEBUG environment variable is set
+        import os
+        if os.environ.get('DEBUG') == '1' and RDKIT_IMPORT_ERROR:
+            with st.expander("🔍 Debug Info"):
+                st.code(f"Import Error: {RDKIT_IMPORT_ERROR}", language="text")
+                st.info("To fix: Ensure `rdkit-pypi` is installed via `pip install rdkit-pypi`")
+    
+    if RDKIT_AVAILABLE:
         st.write("Select a top candidate to view its chemical structure:")
     
     if not top_df.empty:
@@ -1040,12 +1048,16 @@ def render_cartesian_section():
                 
                 with col1:
                     st.markdown("**Molecular Structure:**")
-                    # Generate and display structure image
-                    img_buffer = smiles_to_image(smiles, size=(350, 350))
-                    if img_buffer:
-                        st.image(img_buffer, caption=f"{selected_row['catalog_number']}", width=350)
+                    
+                    if RDKIT_AVAILABLE:
+                        # Generate and display structure image
+                        img_buffer = smiles_to_image(smiles, size=(350, 350))
+                        if img_buffer:
+                            st.image(img_buffer, caption=f"{selected_row['catalog_number']}", width=350)
+                        else:
+                            st.warning("⚠️ Invalid SMILES string or could not generate structure image")
                     else:
-                        st.warning("Could not generate structure image")
+                        st.info("💡 Structure visualization requires RDKit. SMILES string is available below.")
                 
                 with col2:
                     st.markdown("**Compound Details:**")
