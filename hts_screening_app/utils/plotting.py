@@ -332,8 +332,8 @@ def plot_qc_heatmap(qc_df: pd.DataFrame) -> go.Figure:
     Returns:
         Plotly Figure
     """
-    # Pivot for heatmap
-    pivot = qc_df.pivot(index='Plate', columns='Rep', values='Z_Prime')
+    # Pivot for heatmap - use pivot_table to handle duplicates with mean aggregation
+    pivot = qc_df.pivot_table(index='Plate', columns='Rep', values='Z_Prime', aggfunc='mean')
     
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values,
