@@ -1,36 +1,32 @@
 """
 Chemical structure viewer using RDKit.
-Converts SMILES strings to molecular structure images.
+RDKit is optional - structure viewer is disabled if RDKit is not installed.
 """
 
 import io
 import pandas as pd
 
-# Try to import RDKit - it may not be available in all environments
+# Try to import RDKit, but make it optional
+RDKIT_AVAILABLE = False
 try:
     from rdkit import Chem
     from rdkit.Chem import Draw
+    from rdkit.Chem import rdMolDescriptors
     RDKIT_AVAILABLE = True
 except ImportError:
-    RDKIT_AVAILABLE = False
     Chem = None
     Draw = None
+    rdMolDescriptors = None
 
 
 def smiles_to_image(smiles, size=(350, 350)):
     """
     Convert a SMILES string to a PNG image.
-    
-    Args:
-        smiles: SMILES string of the molecule
-        size: Tuple of (width, height) for the image
-    
-    Returns:
-        BytesIO buffer containing the PNG image, or None if conversion fails
+    Returns None if RDKit is not available or conversion fails.
     """
     if not RDKIT_AVAILABLE:
         return None
-        
+    
     try:
         if not smiles or pd.isna(smiles):
             return None
@@ -56,18 +52,15 @@ def smiles_to_image(smiles, size=(350, 350)):
 def get_molecule_info(smiles):
     """
     Get basic molecular information from SMILES.
-    
-    Returns dict with molecular formula, etc.
+    Returns None if RDKit is not available.
     """
     if not RDKIT_AVAILABLE:
         return None
-        
+    
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
-            
-        from rdkit.Chem import Descriptors, rdMolDescriptors
         
         return {
             'formula': rdMolDescriptors.CalcMolFormula(mol),

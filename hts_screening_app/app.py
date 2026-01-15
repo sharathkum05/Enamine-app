@@ -1132,17 +1132,26 @@ def render_cartesian_section():
     )
     
     # ============================================
-    # CHEMICAL STRUCTURE VIEWER
+    # CHEMICAL STRUCTURE VIEWER (Optional - requires RDKit)
     # ============================================
     st.markdown("---")
     st.subheader("🔬 View Compound Structure")
     
     # Check if RDKit is available
-    from utils.structure_viewer import RDKIT_AVAILABLE, is_rdkit_available
+    from utils.structure_viewer import is_rdkit_available
     
     if not is_rdkit_available():
-        st.warning("⚠️ Chemical structure viewer is not available. RDKit package could not be installed on this platform.")
-        st.info("💡 The structure viewer requires RDKit. You can still view compound data and SMILES strings in the table above.")
+        st.info("""
+        **Structure viewer is not available on this deployment.**
+        
+        The chemical structure viewer requires RDKit, which is not installed on Streamlit Cloud.
+        
+        **To view molecular structures:**
+        - Run the app locally with RDKit installed: `pip install rdkit`
+        - Or use the SMILES strings from the exported CSV in other tools (ChemDraw, PubChem, etc.)
+        
+        **Note:** All compound data and SMILES strings are available in the table above and CSV exports.
+        """)
     else:
         st.write("Select a top candidate to view its chemical structure:")
     
