@@ -1138,9 +1138,11 @@ def render_cartesian_section():
     st.subheader("🔬 View Compound Structure")
     
     # Check if RDKit is available
-    from utils.structure_viewer import RDKIT_AVAILABLE
-    if not RDKIT_AVAILABLE:
-        st.warning("⚠️ Chemical structure viewer is not available. RDKit library could not be loaded. SMILES data is still available in CSV exports.")
+    from utils.structure_viewer import RDKIT_AVAILABLE, is_rdkit_available
+    
+    if not is_rdkit_available():
+        st.warning("⚠️ Chemical structure viewer is not available. RDKit package could not be installed on this platform.")
+        st.info("💡 The structure viewer requires RDKit. You can still view compound data and SMILES strings in the table above.")
     else:
         st.write("Select a top candidate to view its chemical structure:")
     

@@ -6,4 +6,4 @@ openpyxl>=3.1.0
 xlrd>=2.0.0
 kaleido==0.2.1
 # RDKit for chemical structure visualization - pip-installable version
-rdkit-pypi
+rdkit-pypi>=2022.9.1

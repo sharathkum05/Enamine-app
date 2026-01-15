@@ -77,3 +77,8 @@ def get_molecule_info(smiles):
         }
     except Exception:
         return None
+
+
+def is_rdkit_available():
+    """Check if RDKit is available."""
+    return RDKIT_AVAILABLE
