@@ -5,8 +5,16 @@ Converts SMILES strings to molecular structure images.
 
 import io
 import pandas as pd
-from rdkit import Chem
-from rdkit.Chem import Draw
+
+# Try to import RDKit - it may not be available in all environments
+try:
+    from rdkit import Chem
+    from rdkit.Chem import Draw
+    RDKIT_AVAILABLE = True
+except ImportError:
+    RDKIT_AVAILABLE = False
+    Chem = None
+    Draw = None
 
 
 def smiles_to_image(smiles, size=(350, 350)):
@@ -16,10 +24,13 @@ def smiles_to_image(smiles, size=(350, 350)):
     Args:
         smiles: SMILES string of the molecule
         size: Tuple of (width, height) for the image
-        
+    
     Returns:
         BytesIO buffer containing the PNG image, or None if conversion fails
     """
+    if not RDKIT_AVAILABLE:
+        return None
+        
     try:
         if not smiles or pd.isna(smiles):
             return None
@@ -48,6 +59,9 @@ def get_molecule_info(smiles):
     
     Returns dict with molecular formula, etc.
     """
+    if not RDKIT_AVAILABLE:
+        return None
+        
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:

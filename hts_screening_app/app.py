@@ -1001,7 +1001,13 @@ def render_cartesian_section():
     # ============================================
     st.markdown("---")
     st.subheader("🔬 View Compound Structure")
-    st.write("Select a top candidate to view its chemical structure:")
+    
+    # Check if RDKit is available
+    from utils.structure_viewer import RDKIT_AVAILABLE
+    if not RDKIT_AVAILABLE:
+        st.warning("⚠️ Chemical structure viewer is not available. RDKit library could not be loaded. SMILES data is still available in CSV exports.")
+    else:
+        st.write("Select a top candidate to view its chemical structure:")
     
     if not top_df.empty:
         # Create display labels for the dropdown
