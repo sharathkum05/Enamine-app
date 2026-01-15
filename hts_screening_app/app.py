@@ -1071,11 +1071,12 @@ def render_cartesian_section():
                 line=dict(color='darkred', width=1.5)
             ),
             text=top_per_wedge_viz['catalog_number'],
+            customdata=top_per_wedge_viz[['PSA_MW_ratio']],
             hovertemplate=(
                 "<b>⭐ Per-Wedge Top: %{text}</b><br>" +
                 "SPEI: %{y:.3f}<br>" +
                 "PPEI: %{x:.3f}<br>" +
-                "10PSA/MW: " + top_per_wedge_viz['PSA_MW_ratio'].round(3).astype(str) + "<br>" +
+                "10PSA/MW: %{customdata[0]:.3f}<br>" +
                 "<extra></extra>"
             ),
             name='Top Per Wedge',
