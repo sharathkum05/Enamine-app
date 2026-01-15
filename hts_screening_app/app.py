@@ -943,21 +943,19 @@ def render_cartesian_section():
     
     # Select top N compounds per wedge (furthest from origin in each wedge)
     compounds_per_wedge = 10  # Number of top compounds to select from each wedge
-    top_per_wedge_list = []
+    
+    # Initialize column
+    df_ranked_with_bins['Is_Top_PerWedge'] = False
     
     for bin_name in bin_order:
-        wedge_compounds = df_ranked_with_bins[df_ranked_with_bins['10PSAoMW_bin'] == bin_name]
+        wedge_compounds_mask = df_ranked_with_bins['10PSAoMW_bin'] == bin_name
+        wedge_compounds = df_ranked_with_bins[wedge_compounds_mask]
+        
         if not wedge_compounds.empty:
-            top_in_wedge = wedge_compounds.nlargest(compounds_per_wedge, 'Distance_from_Origin')
-            top_per_wedge_list.append(top_in_wedge)
-    
-    # Combine all per-wedge top candidates
-    if top_per_wedge_list:
-        top_per_wedge_df = pd.concat(top_per_wedge_list, ignore_index=True)
-        # Mark these as per-wedge top candidates
-        df_ranked_with_bins['Is_Top_PerWedge'] = df_ranked_with_bins.index.isin(top_per_wedge_df.index)
-    else:
-        df_ranked_with_bins['Is_Top_PerWedge'] = False
+            # Get indices of top compounds in this wedge
+            top_indices = wedge_compounds.nlargest(compounds_per_wedge, 'Distance_from_Origin').index
+            # Mark them as top per wedge
+            df_ranked_with_bins.loc[top_indices, 'Is_Top_PerWedge'] = True
     
     # Options for display
     col_a, col_b = st.columns(2)
