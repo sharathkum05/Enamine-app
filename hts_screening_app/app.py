@@ -2,7 +2,7 @@
 ENAMINE LIBRARY Screening Data Analysis Streamlit Application
 
 A comprehensive application for analyzing High-Throughput Screening data
-from ENAMINE compound library plates.
+from ENAMINE compound library.
 """
 
 import io
