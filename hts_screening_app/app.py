@@ -15,6 +15,9 @@ import numpy as np
 import pandas as pd
 import plotly.io as pio
 import streamlit as st
+from scipy import stats
+from scipy.stats import gaussian_kde
+import plotly.graph_objects as go
 
 from config import (
     APP_TITLE, APP_ICON, NEG_CONTROL_SPANS, POS_CONTROL_SPANS,
@@ -44,6 +47,129 @@ def create_png_download_button(fig, filename, button_key):
         )
     except Exception as e:
         st.error(f"PNG export failed: {e}")
+
+
+def add_gaussian_overlay(fig, data, x_col, nbins=30):
+    """
+    Add a Gaussian/Normal distribution overlay to a histogram figure.
+    
+    Args:
+        fig: Plotly figure with histogram
+        data: DataFrame or Series with the data
+        x_col: Column name or Series name for x-axis data
+        nbins: Number of bins used in histogram (for scaling)
+    
+    Returns:
+        Tuple of (Updated figure, mean, std) or None if insufficient data
+    """
+    # Extract data
+    if isinstance(data, pd.DataFrame):
+        data_vals = data[x_col].dropna()
+    else:
+        data_vals = data.dropna()
+    
+    if len(data_vals) < 3:
+        return None  # Not enough data for Gaussian fit
+    
+    # Calculate statistics
+    mean = data_vals.mean()
+    std = data_vals.std()
+    
+    # Handle case where std = 0 (all values same)
+    if std == 0:
+        return None
+    
+    # Generate x-values covering the full range
+    x_min = data_vals.min()
+    x_max = data_vals.max()
+    x_range = np.linspace(x_min, x_max, 1000)
+    
+    # Calculate Gaussian PDF
+    y_gaussian = stats.norm.pdf(x_range, mean, std)
+    
+    # Scale to match histogram height
+    # Get histogram range and bin width
+    bin_width = (x_max - x_min) / nbins
+    total_count = len(data_vals)
+    
+    # Scale the Gaussian curve to match histogram counts
+    y_scaled = y_gaussian * total_count * bin_width
+    
+    # Add Gaussian overlay trace
+    fig.add_trace(go.Scatter(
+        x=x_range,
+        y=y_scaled,
+        mode='lines',
+        line=dict(color='red', width=3),
+        name=f'Normal Fit (μ={mean:.2f}, σ={std:.2f})',
+        hovertemplate='Value: %{x:.2f}<br>Density: %{y:.2f}<extra></extra>'
+    ))
+    
+    return fig, mean, std
+
+
+def add_kde_overlay(fig, data, x_col, nbins=30):
+    """
+    Add a KDE (Kernel Density Estimate) smooth curve overlay to a histogram figure.
+    
+    Args:
+        fig: Plotly figure with histogram
+        data: DataFrame or Series with the data
+        x_col: Column name or Series name for x-axis data
+        nbins: Number of bins used in histogram (for scaling)
+    
+    Returns:
+        Tuple of (Updated figure, bandwidth, mode) or None if insufficient data
+    """
+    # Extract data
+    if isinstance(data, pd.DataFrame):
+        data_vals = data[x_col].dropna()
+    else:
+        data_vals = data.dropna()
+    
+    if len(data_vals) < 3:
+        return None  # Not enough data for KDE
+    
+    # Handle case where std = 0 (all values same)
+    if data_vals.std() == 0:
+        return None
+    
+    try:
+        # Calculate KDE using scipy
+        kde = gaussian_kde(data_vals)
+        
+        # Get bandwidth (smoothing parameter)
+        bandwidth = kde.factor * data_vals.std()
+        
+        # Generate x-values for smooth curve
+        x_min = data_vals.min()
+        x_max = data_vals.max()
+        x_range = np.linspace(x_min, x_max, 1000)
+        
+        # Calculate KDE density values
+        y_kde = kde(x_range)
+        
+        # Scale to match histogram height
+        bin_width = (x_max - x_min) / nbins
+        total_count = len(data_vals)
+        y_scaled = y_kde * total_count * bin_width
+        
+        # Find mode (peak location)
+        mode = x_range[np.argmax(y_kde)]
+        
+        # Add KDE curve trace
+        fig.add_trace(go.Scatter(
+            x=x_range,
+            y=y_scaled,
+            mode='lines',
+            line=dict(color='red', width=3),
+            name=f'KDE Fit (h={bandwidth:.2f})',
+            hovertemplate='Value: %{x:.2f}<br>Density: %{y:.2f}<extra></extra>'
+        ))
+        
+        return fig, bandwidth, mode
+    except Exception:
+        return None
 
 
 # Page configuration
@@ -417,8 +543,42 @@ def render_histogram_section():
     # Use filtered data if plate selector has been used
     df = st.session_state.get('current_analysis_df', st.session_state.analysis_df)
     
+    # Radio buttons for curve selection
+    curve_option = st.radio(
+        "Curve Display:",
+        options=["None", "Normal Distribution Fit", "KDE Smooth Curve"],
+        index=0,  # Default to "None"
+        key="curve_display_inhibition",
+        horizontal=True,
+        help="Choose curve overlay type for the histogram"
+    )
+    
     # Create histogram
     fig = plot_inhibition_histogram(df, st.session_state.replicate_mode)
+    
+    # Add curve overlay based on selection
+    if curve_option == "Normal Distribution Fit":
+        try:
+            result = add_gaussian_overlay(fig, df, 'Pct_Inhibition', nbins=50)
+            if result is not None:
+                fig, mean, std = result
+                st.info(f"Gaussian Fit: μ = {mean:.2f}, σ = {std:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for Gaussian fit.")
+        except Exception as e:
+            st.error(f"Error adding Gaussian overlay: {e}")
+    
+    elif curve_option == "KDE Smooth Curve":
+        try:
+            result = add_kde_overlay(fig, df, 'Pct_Inhibition', nbins=50)
+            if result is not None:
+                fig, bandwidth, mode = result
+                st.info(f"KDE Fit: Bandwidth h = {bandwidth:.2f}, Mode = {mode:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for KDE fit.")
+        except Exception as e:
+            st.error(f"Error adding KDE overlay: {e}")
+    
     st.plotly_chart(fig, use_container_width=True)
     create_png_download_button(fig, "percent_inhibition_histogram", "png_inhibition")
     
@@ -488,6 +648,16 @@ def render_normalized_histogram_section():
     # Get unique bins in order
     bin_order = spei_df.groupby('10PSAoMW_bin')['PSA_MW_ratio'].min().sort_values().index.tolist()
     
+    # Radio buttons for curve selection
+    curve_option_spei = st.radio(
+        "Curve Display:",
+        options=["None", "Normal Distribution Fit", "KDE Smooth Curve"],
+        index=0,  # Default to "None"
+        key="curve_display_spei",
+        horizontal=True,
+        help="Choose curve overlay type for the histogram"
+    )
+    
     # Create stacked histogram
     import plotly.express as px
     fig_spei = px.histogram(
@@ -516,6 +686,31 @@ def render_normalized_histogram_section():
         )
     )
     fig_spei.update_xaxes(range=[0, None])
+    
+    # Add curve overlay based on selection
+    if curve_option_spei == "Normal Distribution Fit":
+        try:
+            # Get ALL SPEI data (not per bin, but entire distribution)
+            result = add_gaussian_overlay(fig_spei, spei_df, 'SPEI', nbins=30)
+            if result is not None:
+                fig_spei, mean, std = result
+                st.info(f"Gaussian Fit: μ = {mean:.2f}, σ = {std:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for Gaussian fit.")
+        except Exception as e:
+            st.error(f"Error adding Gaussian overlay: {e}")
+    
+    elif curve_option_spei == "KDE Smooth Curve":
+        try:
+            # Get ALL SPEI data (not per bin, but entire distribution)
+            result = add_kde_overlay(fig_spei, spei_df, 'SPEI', nbins=30)
+            if result is not None:
+                fig_spei, bandwidth, mode = result
+                st.info(f"KDE Fit: Bandwidth h = {bandwidth:.2f}, Mode = {mode:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for KDE fit.")
+        except Exception as e:
+            st.error(f"Error adding KDE overlay: {e}")
     
     st.plotly_chart(fig_spei, use_container_width=True)
     create_png_download_button(fig_spei, "spei_histogram_colored", "png_spei_colored")
@@ -569,6 +764,16 @@ def render_normalized_histogram_section():
     # Get unique bins in order
     bin_order_ppei = ppei_df.groupby('10PSAoMW_bin')['PSA_MW_ratio'].min().sort_values().index.tolist()
     
+    # Radio buttons for curve selection
+    curve_option_ppei = st.radio(
+        "Curve Display:",
+        options=["None", "Normal Distribution Fit", "KDE Smooth Curve"],
+        index=0,  # Default to "None"
+        key="curve_display_ppei",
+        horizontal=True,
+        help="Choose curve overlay type for the histogram"
+    )
+    
     # Create stacked histogram
     fig_ppei = px.histogram(
         ppei_df,
@@ -596,6 +801,31 @@ def render_normalized_histogram_section():
         )
     )
     fig_ppei.update_xaxes(range=[0, None])
+    
+    # Add curve overlay based on selection
+    if curve_option_ppei == "Normal Distribution Fit":
+        try:
+            # Get ALL PPEI data (not per bin, but entire distribution)
+            result = add_gaussian_overlay(fig_ppei, ppei_df, 'PPEI', nbins=30)
+            if result is not None:
+                fig_ppei, mean, std = result
+                st.info(f"Gaussian Fit: μ = {mean:.2f}, σ = {std:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for Gaussian fit.")
+        except Exception as e:
+            st.error(f"Error adding Gaussian overlay: {e}")
+    
+    elif curve_option_ppei == "KDE Smooth Curve":
+        try:
+            # Get ALL PPEI data (not per bin, but entire distribution)
+            result = add_kde_overlay(fig_ppei, ppei_df, 'PPEI', nbins=30)
+            if result is not None:
+                fig_ppei, bandwidth, mode = result
+                st.info(f"KDE Fit: Bandwidth h = {bandwidth:.2f}, Mode = {mode:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for KDE fit.")
+        except Exception as e:
+            st.error(f"Error adding KDE overlay: {e}")
     
     st.plotly_chart(fig_ppei, use_container_width=True)
     create_png_download_button(fig_ppei, "ppei_histogram_colored", "png_ppei_colored")
@@ -658,6 +888,16 @@ def render_psa_mw_histogram_section():
     
     st.info(f"📊 Showing {filtered_psa_mw:,} compounds with 10xPSA/MW > 0 ({excluded_psa_mw:,} negative values excluded)")
     
+    # Radio buttons for curve selection
+    curve_option_psa_mw = st.radio(
+        "Curve Display:",
+        options=["None", "Normal Distribution Fit", "KDE Smooth Curve"],
+        index=0,  # Default to "None"
+        key="curve_display_psa_mw",
+        horizontal=True,
+        help="Choose curve overlay type for the histogram"
+    )
+    
     # Create histogram with filtered data
     import plotly.express as px
     fig_psa_mw = px.histogram(
@@ -677,6 +917,34 @@ def render_psa_mw_histogram_section():
     )
     
     fig_psa_mw.update_xaxes(range=[0, None])  # Start x-axis from 0
+    
+    # Add curve overlay based on selection
+    if curve_option_psa_mw == "Normal Distribution Fit":
+        try:
+            result = add_gaussian_overlay(fig_psa_mw, psa_mw_df, 'PSA_MW_ratio', nbins=50)
+            if result is not None:
+                fig_psa_mw, mean, std = result
+                # Update layout to show legend when curve overlay is added
+                fig_psa_mw.update_layout(showlegend=True)
+                st.info(f"Gaussian Fit: μ = {mean:.2f}, σ = {std:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for Gaussian fit.")
+        except Exception as e:
+            st.error(f"Error adding Gaussian overlay: {e}")
+    
+    elif curve_option_psa_mw == "KDE Smooth Curve":
+        try:
+            result = add_kde_overlay(fig_psa_mw, psa_mw_df, 'PSA_MW_ratio', nbins=50)
+            if result is not None:
+                fig_psa_mw, bandwidth, mode = result
+                # Update layout to show legend when curve overlay is added
+                fig_psa_mw.update_layout(showlegend=True)
+                st.info(f"KDE Fit: Bandwidth h = {bandwidth:.2f}, Mode = {mode:.2f}")
+            else:
+                st.warning("Insufficient data or no variance for KDE fit.")
+        except Exception as e:
+            st.error(f"Error adding KDE overlay: {e}")
+    
     st.plotly_chart(fig_psa_mw, use_container_width=True)
     create_png_download_button(fig_psa_mw, "10xPSA_MW_histogram", "png_psa_mw")
     
