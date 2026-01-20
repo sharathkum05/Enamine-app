@@ -781,6 +781,110 @@ def render_cartesian_section():
     
     st.info(f"📊 Showing {filtered_points:,} compounds with SPEI > 0 and PPEI > 0. ({excluded_points:,} compounds with negative values excluded)")
     
+    # Calculate PSA_MW_ratio and create bins FIRST (needed for filtering)
+    if 'PSA_MW_ratio' not in cartesian_df.columns:
+        cartesian_df['PSA_MW_ratio'] = (10 * cartesian_df['TPSA']) / cartesian_df['MW']
+    
+    # Create bins with FIXED 0.45 Å²/Dalton intervals
+    min_ratio = 0
+    max_ratio = cartesian_df['PSA_MW_ratio'].max()
+    wedge_spacing = 0.45
+    
+    # Create bin edges with 0.45 intervals
+    bin_edges = np.arange(min_ratio, max_ratio + wedge_spacing, wedge_spacing)
+    
+    cartesian_df['10PSAoMW_bin'] = pd.cut(
+        cartesian_df['PSA_MW_ratio'], 
+        bins=bin_edges, 
+        precision=2
+    ).apply(lambda x: f"{x.left:.2f} - {x.right:.2f}" if pd.notna(x) else "N/A")
+    
+    # ============================================
+    # INHIBITION LEVEL FILTER (Keep at top)
+    # ============================================
+    st.markdown("---")
+    st.subheader("🔍 Filter by Inhibition Level")
+    
+    # Initialize session state for inhibition filter if not present
+    if 'inhibition_filter' not in st.session_state:
+        st.session_state.inhibition_filter = (0.0, 100.0)
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        min_inh, max_inh = st.slider(
+            "% Inhibition Range:",
+            min_value=0.0,
+            max_value=100.0,
+            value=st.session_state.inhibition_filter,
+            step=5.0,
+            help="Filter compounds by their % Inhibition values",
+            key="inhibition_filter"
+        )
+    
+    # Inhibition level presets
+    with col2:
+        st.markdown("**Presets:**")
+        if st.button("All (0-100%)", key="inh_all", use_container_width=True):
+            st.session_state.inhibition_filter = (0.0, 100.0)
+            st.rerun()
+        if st.button("Active (>50%)", key="inh_active", use_container_width=True):
+            st.session_state.inhibition_filter = (50.0, 100.0)
+            st.rerun()
+        if st.button("Highly Active (>70%)", key="inh_highly_active", use_container_width=True):
+            st.session_state.inhibition_filter = (70.0, 100.0)
+            st.rerun()
+        if st.button("Top Hits (>90%)", key="inh_top_hits", use_container_width=True):
+            st.session_state.inhibition_filter = (90.0, 100.0)
+            st.rerun()
+    
+    # Get available wedge bins from the data
+    available_wedges = sorted([w for w in cartesian_df['10PSAoMW_bin'].dropna().unique() if w != "N/A"])
+    
+    # Initialize wedge checkbox state (all checked by default)
+    if 'wedge_checkboxes' not in st.session_state:
+        st.session_state.wedge_checkboxes = {wedge: True for wedge in available_wedges}
+    
+    # Get selected wedges from session state (will be updated by checkboxes below)
+    selected_wedges = [wedge for wedge, checked in st.session_state.wedge_checkboxes.items() 
+                      if checked and wedge in available_wedges]
+    
+    # If no wedges selected, default to all
+    if not selected_wedges:
+        selected_wedges = available_wedges
+        st.session_state.wedge_checkboxes = {wedge: True for wedge in available_wedges}
+    
+    # Store original count before filtering
+    original_count = len(cartesian_df)
+    
+    # Apply inhibition filter first
+    filtered_cartesian_df = cartesian_df[
+        (cartesian_df['Pct_Inhibition'] >= min_inh) & 
+        (cartesian_df['Pct_Inhibition'] <= max_inh)
+    ].copy()
+    
+    # Apply wedge filter
+    if selected_wedges:
+        filtered_cartesian_df = filtered_cartesian_df[filtered_cartesian_df['10PSAoMW_bin'].isin(selected_wedges)]
+    
+    # Display filter summary
+    st.markdown("**Active Filters:**")
+    filter_summary_col1, filter_summary_col2 = st.columns(2)
+    
+    with filter_summary_col1:
+        st.metric("Inhibition Range", f"{min_inh:.0f}% - {max_inh:.0f}%")
+    
+    with filter_summary_col2:
+        filtered_count = len(filtered_cartesian_df)
+        st.metric("Compounds Shown", f"{filtered_count:,} of {original_count:,}")
+    
+    if filtered_cartesian_df.empty:
+        st.warning("⚠️ No compounds match the current filters. Please adjust your selection.")
+        return
+    
+    # Update cartesian_df to use filtered data for all subsequent plots
+    cartesian_df = filtered_cartesian_df.copy()
+    
     # CONTROLS ROW 1: Top candidates threshold and ranking metric
     col1, col2 = st.columns(2)
     
@@ -897,23 +1001,7 @@ def render_cartesian_section():
     st.markdown("### 🎨 View 2: Colored by 10×PSA/MW Ratio")
     st.caption("Categorical coloring showing polarity/size distribution with wedge boundaries")
     
-    # Calculate PSA_MW_ratio and create bins
-    if 'PSA_MW_ratio' not in cartesian_df.columns:
-        cartesian_df['PSA_MW_ratio'] = (10 * cartesian_df['TPSA']) / cartesian_df['MW']
-    
-    # Create bins with FIXED 0.45 Å²/Dalton intervals (not equal-width)
-    min_ratio = 0  # Start from 0
-    max_ratio = cartesian_df['PSA_MW_ratio'].max()
-    wedge_spacing = 0.45  # Fixed spacing as per professor's specification
-    
-    # Create bin edges with 0.45 intervals
-    bin_edges = np.arange(min_ratio, max_ratio + wedge_spacing, wedge_spacing)
-    
-    cartesian_df['10PSAoMW_bin'] = pd.cut(
-        cartesian_df['PSA_MW_ratio'], 
-        bins=bin_edges, 
-        precision=2
-    ).apply(lambda x: f"{x.left:.2f} - {x.right:.2f}" if pd.notna(x) else "N/A")
+    # Bins are already created above in the filter section
     
     # Define color palette - extend to match number of bins
     base_colors = ['#87CEEB', '#1a237e', '#7CB342', '#2E7D32', '#FF7043', '#FFD54F', '#9C27B0', '#FF4081']
@@ -1104,6 +1192,86 @@ def render_cartesian_section():
     st.plotly_chart(fig2, use_container_width=True)
     create_png_download_button(fig2, "spei_vs_ppei_colored_by_bins", "png_cartesian_colored")
     
+    # ============================================
+    # WEDGE SELECTION CHECKBOXES (Below the plot)
+    # ============================================
+    st.markdown("---")
+    st.markdown("**🎯 Select Wedges to Display:**")
+    st.caption("Toggle individual wedges on/off to filter compounds in the plot and analysis below.")
+    
+    # Get available wedges (should match what's in the data)
+    wedge_bins = available_wedges.copy()
+    
+    # Ensure session state has all current wedges
+    for wedge in wedge_bins:
+        if wedge not in st.session_state.wedge_checkboxes:
+            st.session_state.wedge_checkboxes[wedge] = True
+    
+    # Remove wedges from session state that are no longer in data
+    st.session_state.wedge_checkboxes = {
+        k: v for k, v in st.session_state.wedge_checkboxes.items() 
+        if k in wedge_bins
+    }
+    
+    # Create two rows of checkboxes
+    # Row 1: First 6 wedges
+    row1_cols = st.columns(6)
+    
+    for i in range(min(6, len(wedge_bins))):
+        with row1_cols[i]:
+            current_value = st.session_state.wedge_checkboxes.get(wedge_bins[i], True)
+            new_value = st.checkbox(
+                wedge_bins[i],
+                value=current_value,
+                key=f"wedge_cb_{i}"
+            )
+            st.session_state.wedge_checkboxes[wedge_bins[i]] = new_value
+    
+    # Row 2: Remaining wedges + Select All/Clear All buttons
+    remaining_wedges = len(wedge_bins) - 6
+    if remaining_wedges > 0:
+        row2_cols = st.columns(max(7, remaining_wedges + 2))
+        
+        for i in range(6, len(wedge_bins)):
+            with row2_cols[i - 6]:
+                current_value = st.session_state.wedge_checkboxes.get(wedge_bins[i], True)
+                new_value = st.checkbox(
+                    wedge_bins[i],
+                    value=current_value,
+                    key=f"wedge_cb_{i}"
+                )
+                st.session_state.wedge_checkboxes[wedge_bins[i]] = new_value
+        
+        # Select All / Clear All buttons
+        with row2_cols[remaining_wedges]:
+            if st.button("✓ All", key="select_all_wedges", use_container_width=True):
+                for wedge in wedge_bins:
+                    st.session_state.wedge_checkboxes[wedge] = True
+                st.rerun()
+        
+        with row2_cols[remaining_wedges + 1]:
+            if st.button("✗ None", key="clear_all_wedges", use_container_width=True):
+                for wedge in wedge_bins:
+                    st.session_state.wedge_checkboxes[wedge] = False
+                st.rerun()
+    else:
+        # If 6 or fewer wedges, add buttons in a separate row
+        btn_cols = st.columns(2)
+        with btn_cols[0]:
+            if st.button("✓ Select All", key="select_all_wedges", use_container_width=True):
+                for wedge in wedge_bins:
+                    st.session_state.wedge_checkboxes[wedge] = True
+                st.rerun()
+        with btn_cols[1]:
+            if st.button("✗ Clear All", key="clear_all_wedges", use_container_width=True):
+                for wedge in wedge_bins:
+                    st.session_state.wedge_checkboxes[wedge] = False
+                st.rerun()
+    
+    # Show selected wedge count
+    selected_count = sum(1 for v in st.session_state.wedge_checkboxes.values() if v)
+    st.caption(f"📊 {selected_count} of {len(wedge_bins)} wedges selected")
+    
     # Top candidates table
     st.markdown("---")
     st.markdown("### 🏆 Top Candidates")
@@ -1129,6 +1297,35 @@ def render_cartesian_section():
         file_name="top_candidates_with_smiles.csv",
         mime="text/csv",
         key="download_top_candidates"
+    )
+    
+    # ============================================
+    # EXPORT FILTERED COMPOUNDS
+    # ============================================
+    st.markdown("---")
+    st.subheader("📥 Export Selected Compounds")
+    
+    # Get the filtered count (cartesian_df now contains filtered data)
+    filtered_count = len(cartesian_df)
+    
+    # Get selected wedge count from session state
+    selected_wedge_count = sum(1 for v in st.session_state.wedge_checkboxes.values() if v)
+    
+    st.info(f"**{filtered_count:,} compounds** match your current filter criteria ({selected_wedge_count} wedges selected, inhibition: {min_inh:.0f}%-{max_inh:.0f}%).")
+    
+    # Export filtered data
+    export_cols = ['Plate', 'Well', 'catalog_number', 'Smiles', 'Chemical_name', 
+                   'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI', 
+                   'PSA_MW_ratio', '10PSAoMW_bin']
+    export_cols = [c for c in export_cols if c in cartesian_df.columns]
+    
+    csv_filtered = cartesian_df[export_cols].to_csv(index=False)
+    st.download_button(
+        label=f"📥 Download Selected Compounds ({filtered_count:,} compounds)",
+        data=csv_filtered,
+        file_name="selected_compounds.csv",
+        mime="text/csv",
+        key="download_selected"
     )
     
     # ============================================
