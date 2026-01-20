@@ -1,3 +1,10 @@
 libxrender1
-libxext6
+libfontconfig1
+libice6
 libsm6
+libxext6
+libx11-6
+libxau6
+libxdmcp6
+build-essential
+libcairo2-dev
