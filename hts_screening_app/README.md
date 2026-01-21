@@ -1,1 +1,1 @@
-# 🧬 ENAMINE LIBRARY Screening Data Analysis App
+# 🧬 Data Analysis App
