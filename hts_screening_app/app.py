@@ -1692,6 +1692,246 @@ def render_cartesian_section():
         st.info("No top candidates to display. Adjust the threshold slider above.")
 
 
+def render_purity_plot_section():
+    """Render Purity Plot section with stacked bar chart by stereochemistry."""
+    st.markdown("## 📊 Purity Plot")
+    
+    # Check if library data is available
+    if st.session_state.library_df is None:
+        st.warning("⚠️ Please upload the ENAMINE library file first in the 'Upload Data' section.")
+        return
+    
+    library_df = st.session_state.library_df
+    
+    # Try to find purity column (check multiple possible names)
+    purity_col = None
+    possible_purity_names = ['Purity', 'purity', 'Purity (%)', 'Purity_%', 'Purity%']
+    
+    for col_name in possible_purity_names:
+        if col_name in library_df.columns:
+            purity_col = col_name
+            break
+    
+    # Try to find stereochem column
+    stereochem_col = None
+    possible_stereochem_names = ['Stereochem.data', 'Stereochem_data', 'Stereochem', 'stereochem.data']
+    
+    for col_name in possible_stereochem_names:
+        if col_name in library_df.columns:
+            stereochem_col = col_name
+            break
+    
+    if purity_col is None:
+        st.error("❌ Purity column not found in the dataset. Expected column names: 'Purity', 'purity', 'Purity (%)', 'Purity_%', or 'Purity%'")
+        st.info("Available columns in the dataset:")
+        st.write(list(library_df.columns))
+        return
+    
+    if stereochem_col is None:
+        st.error("❌ Stereochem.data column not found in the dataset. Expected column names: 'Stereochem.data', 'Stereochem_data', 'Stereochem', or 'stereochem.data'")
+        st.info("Available columns in the dataset:")
+        st.write(list(library_df.columns))
+        return
+    
+    # Filter out NaN/null values for both columns
+    plot_df = library_df[[purity_col, stereochem_col]].copy()
+    plot_df = plot_df.dropna(subset=[purity_col, stereochem_col])
+    
+    if len(plot_df) == 0:
+        st.error("❌ No valid data found. All values are missing.")
+        return
+    
+    st.info(f"📊 Displaying purity distribution for {len(plot_df):,} compounds")
+    
+    # Create purity bins matching the reference image (centered around 91, 93, 95, 97, 99)
+    # Bins: 90-92, 92-94, 94-96, 96-98, 98-100
+    bin_edges = [90, 92, 94, 96, 98, 100.1]  # Slightly above 100 to include 100
+    bin_labels = ['91', '93', '95', '97', '99']  # Center values for display
+    
+    # Create bins and labels
+    plot_df['Purity_Bin'] = pd.cut(
+        plot_df[purity_col],
+        bins=bin_edges,
+        labels=bin_labels,
+        include_lowest=True,
+        right=False
+    )
+    
+    # Group by purity bin and stereochemistry category
+    grouped = plot_df.groupby(['Purity_Bin', stereochem_col]).size().reset_index(name='Count')
+    
+    # Define color mapping for stereochemistry categories
+    color_map = {
+        'Achiral': '#5DADE2',  # Light blue
+        'Racemic or presumed racemic or meso': '#1F4788',  # Dark blue/Navy
+        'Single known enantiomer': '#9ACD32',  # Lime green
+        'Diastereomeric mixture': '#2D5016',  # Dark green
+        'Racemic diastereomer with known relative stereochemistry': '#FF6347',  # Orange/Coral
+        'Single unknown enantiomer': '#800000'  # Dark red/Maroon
+    }
+    
+    # Define preferred stacking order (Achiral at bottom/base)
+    preferred_order = [
+        'Achiral',
+        'Racemic or presumed racemic or meso',
+        'Single known enantiomer',
+        'Diastereomeric mixture',
+        'Racemic diastereomer with known relative stereochemistry',
+        'Single unknown enantiomer'
+    ]
+    
+    # Get unique stereochemistry categories, ordered by preference
+    all_categories = grouped[stereochem_col].unique()
+    stereochem_categories = [cat for cat in preferred_order if cat in all_categories]
+    # Add any categories not in preferred order at the end
+    for cat in all_categories:
+        if cat not in stereochem_categories:
+            stereochem_categories.append(cat)
+    
+    # Create stacked bar chart
+    fig = go.Figure()
+    
+    # Add a bar trace for each stereochemistry category (order matters for stacking)
+    for stereochem in stereochem_categories:
+        data_subset = grouped[grouped[stereochem_col] == stereochem]
+        
+        if not data_subset.empty:
+            # Get counts for each purity bin (fill missing bins with 0)
+            counts = []
+            for bin_label in bin_labels:
+                bin_data = data_subset[data_subset['Purity_Bin'] == bin_label]
+                if len(bin_data) > 0:
+                    counts.append(bin_data['Count'].iloc[0])
+                else:
+                    counts.append(0)
+            
+            fig.add_trace(go.Bar(
+                x=bin_labels,
+                y=counts,
+                name=stereochem,
+                marker_color=color_map.get(stereochem, '#808080'),  # Default gray if category not in map
+                hovertemplate=(
+                    f"<b>{stereochem}</b><br>" +
+                    "Purity Bin: %{x}<br>" +
+                    "Count: %{y}<br>" +
+                    "<extra></extra>"
+                )
+            ))
+    
+    # Update layout - matching exact styling of other plots in the app
+    fig.update_layout(
+        title={
+            'text': "Purity distribution and 'Stereo-isomeric' content",
+            'font': {'size': 24, 'family': 'Crimson Pro, serif'}
+        },
+        xaxis_title='Purity',
+        yaxis_title='Count',
+        barmode='stack',
+        bargap=0,  # No gaps between bars
+        template='plotly_white',
+        font=dict(family='Crimson Pro, serif', size=14),
+        showlegend=True,
+        legend=dict(
+            title='Stereochem.data',
+            orientation="h",
+            yanchor="bottom",
+            y=-0.35,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=10, family='Crimson Pro, serif')
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',  # Transparent - inherits Streamlit background
+        plot_bgcolor='rgba(248,249,250,1)',  # Light gray plot area (matches other plots)
+        height=600,
+        margin=dict(b=150, t=80)  # Extra bottom margin for horizontal legend, top for subtitle
+    )
+    
+    # Add subtitle
+    fig.add_annotation(
+        text="Count vs Purity",
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=1.02,
+        xanchor="center",
+        yanchor="bottom",
+        showarrow=False,
+        font=dict(size=14, family='Crimson Pro, serif')
+    )
+    
+    # Update x-axis to show range 90-100
+    fig.update_xaxes(
+        title='Purity',
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(0,0,0,0.1)',
+        range=[-0.5, len(bin_labels) - 0.5]
+    )
+    
+    # Update y-axis - matching other plots
+    fig.update_yaxes(
+        title='Count',
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(0,0,0,0.1)'
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    create_png_download_button(fig, "purity_stereochem_distribution", "png_purity_stereochem")
+    
+    # Calculate and display summary statistics
+    purity_data = plot_df[purity_col]
+    stats_dict = {
+        'count': len(purity_data),
+        'mean': purity_data.mean(),
+        'median': purity_data.median(),
+        'std': purity_data.std(),
+        'min': purity_data.min(),
+        'max': purity_data.max()
+    }
+    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    
+    with col1:
+        st.metric("Count", f"{stats_dict['count']:,}")
+    with col2:
+        st.metric("Mean", f"{stats_dict['mean']:.2f}%")
+    with col3:
+        st.metric("Median", f"{stats_dict['median']:.2f}%")
+    with col4:
+        st.metric("Std Dev", f"{stats_dict['std']:.2f}%")
+    with col5:
+        st.metric("Min", f"{stats_dict['min']:.2f}%")
+    with col6:
+        st.metric("Max", f"{stats_dict['max']:.2f}%")
+    
+    # Display stereochemistry breakdown
+    st.markdown("### 📋 Stereochemistry Category Breakdown")
+    stereochem_counts = plot_df[stereochem_col].value_counts()
+    stereochem_df = pd.DataFrame({
+        'Stereochemistry Type': stereochem_counts.index,
+        'Count': stereochem_counts.values,
+        'Percentage': (stereochem_counts.values / len(plot_df) * 100).round(2)
+    }).reset_index(drop=True)
+    
+    st.dataframe(
+        stereochem_df,
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Download data
+    download_df = plot_df[[purity_col, stereochem_col, 'Purity_Bin']].copy()
+    csv = download_df.to_csv(index=False)
+    st.download_button(
+        "📥 Download Data (CSV)",
+        data=csv,
+        file_name="purity_stereochem_data.csv",
+        mime="text/csv",
+        key="download_purity_stereochem_csv"
+    )
+
+
 def render_export_section():
     """Render export options."""
     st.markdown("## 📤 Export Results")
@@ -1760,6 +2000,7 @@ def render_sidebar():
                 '📊 Task 1C: 10xPSA/MW',
                 '🧮 Metrics',
                 '🎯 Cartesian Plot',
+                '📊 Purity Plot',
                 '📤 Export'
             ]
         
@@ -1815,6 +2056,8 @@ def main():
             render_metrics_section()
         elif selected == '🎯 Cartesian Plot':
             render_cartesian_section()
+        elif selected == '📊 Purity Plot':
+            render_purity_plot_section()
         elif selected == '📤 Export':
             render_export_section()
         else:
