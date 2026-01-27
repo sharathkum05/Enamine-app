@@ -1942,10 +1942,49 @@ def render_export_section():
     with col1:
         st.markdown("### Complete Dataset")
         
+        # Ensure Purity and Stereochem.data columns are included in export
+        export_df = st.session_state.analysis_df.copy()
+        
+        # If Purity or Stereochem.data exist in library but not in analysis_df, try to merge them
+        if st.session_state.library_df is not None:
+            # Check for Purity column
+            purity_col = None
+            for col_name in ['Purity', 'purity', 'Purity (%)', 'Purity_%', 'Purity%']:
+                if col_name in st.session_state.library_df.columns:
+                    purity_col = col_name
+                    break
+            
+            # Check for Stereochem.data column
+            stereochem_col = None
+            for col_name in ['Stereochem.data', 'Stereochem_data', 'Stereochem', 'stereochem.data']:
+                if col_name in st.session_state.library_df.columns:
+                    stereochem_col = col_name
+                    break
+            
+            # Merge missing columns if needed
+            if purity_col and 'Purity' not in export_df.columns:
+                if 'Plate_ID' in export_df.columns and 'Well' in export_df.columns:
+                    library_subset = st.session_state.library_df[['Plate_ID', 'Well', purity_col]].drop_duplicates()
+                    export_df = export_df.merge(library_subset, on=['Plate_ID', 'Well'], how='left')
+                    if purity_col != 'Purity':
+                        export_df = export_df.rename(columns={purity_col: 'Purity'})
+            
+            if stereochem_col and 'Stereochem.data' not in export_df.columns:
+                if 'Plate_ID' in export_df.columns and 'Well' in export_df.columns:
+                    library_subset = st.session_state.library_df[['Plate_ID', 'Well', stereochem_col]].drop_duplicates()
+                    export_df = export_df.merge(library_subset, on=['Plate_ID', 'Well'], how='left')
+                    if stereochem_col != 'Stereochem.data':
+                        export_df = export_df.rename(columns={stereochem_col: 'Stereochem.data'})
+        
+        # Ensure SPEI and PPEI are calculated if missing
+        if 'SPEI' not in export_df.columns or 'PPEI' not in export_df.columns:
+            if 'Pct_Inhibition' in export_df.columns:
+                export_df = calculate_metrics(export_df)
+        
         # Excel export
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            st.session_state.analysis_df.to_excel(writer, sheet_name='Analysis', index=False)
+            export_df.to_excel(writer, sheet_name='Analysis', index=False)
             st.session_state.qc_df.to_excel(writer, sheet_name='QC Summary', index=False)
         buffer.seek(0)
         

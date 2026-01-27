@@ -122,9 +122,15 @@ def aggregate_replicates(df: pd.DataFrame, method: str) -> pd.DataFrame:
         group_cols = ['Plate', 'Well']
         
         # Add library columns if present
-        library_cols = ['Plate_ID', 'catalog_number', 'Smiles', 'MW', 'TPSA', 'Chemical_name']
+        library_cols = ['Plate_ID', 'catalog_number', 'Smiles', 'MW', 'TPSA', 'Chemical_name', 'Purity', 'Stereochem.data']
         for col in library_cols:
             if col in df.columns:
+                group_cols.append(col)
+        
+        # Add calculated metrics columns (SPEI, PPEI, PSA_MW_ratio, etc.) - take first value since they're per-compound
+        metric_cols = ['SPEI', 'PPEI', 'PSA_MW_ratio', 'Per_one', '10PSAoMW_bin']
+        for col in metric_cols:
+            if col in df.columns and col not in group_cols:
                 group_cols.append(col)
         
         # Numeric columns to average
@@ -140,6 +146,10 @@ def aggregate_replicates(df: pd.DataFrame, method: str) -> pd.DataFrame:
         result = df.groupby(['Plate', 'Well'], as_index=False).agg(
             {**agg_dict, **{col: 'first' for col in group_cols if col not in ['Plate', 'Well'] and col in df.columns}}
         )
+        
+        # Recalculate SPEI and PPEI after averaging Pct_Inhibition to ensure accuracy
+        if 'Pct_Inhibition' in result.columns and 'MW' in result.columns and 'TPSA' in result.columns:
+            result = calculate_metrics(result)
         
         # Add Rep column indicating averaged
         result['Rep'] = 'avg'
