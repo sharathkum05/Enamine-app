@@ -1548,7 +1548,8 @@ def render_cartesian_section():
     top_df = df_ranked_with_bins[df_ranked_with_bins['Is_Top']].sort_values('Rank_Score', ascending=False)
     
     display_cols = ['Plate', 'Well', 'catalog_number', 'Smiles', 'Chemical_name', 
-                    'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI', 'PSA_MW_ratio', '10PSAoMW_bin']
+                    'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI', 'PSA_MW_ratio', '10PSAoMW_bin',
+                    'Purity', 'Stereochem.data']
     available_cols = [c for c in display_cols if c in top_df.columns]
     
     st.dataframe(
@@ -1584,7 +1585,7 @@ def render_cartesian_section():
     # Export filtered data
     export_cols = ['Plate', 'Well', 'catalog_number', 'Smiles', 'Chemical_name', 
                    'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI', 
-                   'PSA_MW_ratio', '10PSAoMW_bin']
+                   'PSA_MW_ratio', '10PSAoMW_bin', 'Purity', 'Stereochem.data']
     export_cols = [c for c in export_cols if c in cartesian_df.columns]
     
     csv_filtered = cartesian_df[export_cols].to_csv(index=False)

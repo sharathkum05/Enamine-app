@@ -70,7 +70,7 @@ def merge_with_library(plate_data: pd.DataFrame, library: pd.DataFrame) -> pd.Da
     library_cols = ['Plate_ID', 'Well']
     
     # Add available compound info columns
-    optional_cols = ['Smiles', 'MW', 'TPSA', 'catalog number', 'Chemical name']
+    optional_cols = ['Smiles', 'MW', 'TPSA', 'catalog number', 'Chemical name', 'Purity', 'Stereochem.data']
     for col in optional_cols:
         if col in library.columns:
             library_cols.append(col)
