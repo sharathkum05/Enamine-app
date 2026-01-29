@@ -1320,8 +1320,120 @@ def render_cartesian_section():
     with col_b:
         show_wedge_lines = st.checkbox("Show wedge boundary lines", value=True, key="show_wedge_lines")
     
-    # Filter if checkbox selected
-    plot_df = df_ranked_with_bins[df_ranked_with_bins['Is_Top']] if show_top_only else df_ranked_with_bins
+    # ============================================
+    # WEDGE SELECTION FOR DOWNLOAD
+    # ============================================
+    st.markdown("---")
+    st.markdown("**Wedge Selection for Download:**")
+    
+    # Get available wedge bins from the data
+    available_wedge_bins = sorted([w for w in df_ranked_with_bins['10PSAoMW_bin'].dropna().unique() if w != "N/A"])
+    
+    # Initialize session state for wedge selections
+    if 'selected_wedges_view2' not in st.session_state:
+        st.session_state.selected_wedges_view2 = []
+    
+    # Select All / Clear All buttons
+    col_select, col_clear = st.columns([1, 1])
+    with col_select:
+        select_all_wedges = st.button("✓ Select All", key="wedge_select_all_view2", use_container_width=True)
+    with col_clear:
+        clear_all_wedges = st.button("✗ Clear All", key="wedge_clear_all_view2", use_container_width=True)
+    
+    # Handle Select All / Clear All
+    if select_all_wedges:
+        st.session_state.selected_wedges_view2 = available_wedge_bins.copy()
+        st.rerun()
+    if clear_all_wedges:
+        st.session_state.selected_wedges_view2 = []
+        st.rerun()
+    
+    # Create wedge checkboxes in 2 rows (5 per row)
+    if len(available_wedge_bins) > 0:
+        row1_cols = st.columns(5)
+        row2_cols = st.columns(5)
+        
+        # First row (first 5 wedges)
+        for i in range(min(5, len(available_wedge_bins))):
+            with row1_cols[i]:
+                wedge = available_wedge_bins[i]
+                checked = st.checkbox(
+                    wedge,
+                    key=f"wedge_check_view2_{i}",
+                    value=wedge in st.session_state.selected_wedges_view2
+                )
+                if checked and wedge not in st.session_state.selected_wedges_view2:
+                    st.session_state.selected_wedges_view2.append(wedge)
+                elif not checked and wedge in st.session_state.selected_wedges_view2:
+                    st.session_state.selected_wedges_view2.remove(wedge)
+        
+        # Second row (remaining wedges)
+        if len(available_wedge_bins) > 5:
+            for i in range(5, len(available_wedge_bins)):
+                with row2_cols[i - 5]:
+                    wedge = available_wedge_bins[i]
+                    checked = st.checkbox(
+                        wedge,
+                        key=f"wedge_check_view2_{i}",
+                        value=wedge in st.session_state.selected_wedges_view2
+                    )
+                    if checked and wedge not in st.session_state.selected_wedges_view2:
+                        st.session_state.selected_wedges_view2.append(wedge)
+                    elif not checked and wedge in st.session_state.selected_wedges_view2:
+                        st.session_state.selected_wedges_view2.remove(wedge)
+        
+        # Show selection info
+        num_selected = len(st.session_state.selected_wedges_view2)
+        if num_selected > 0:
+            filtered_by_wedges = df_ranked_with_bins[df_ranked_with_bins['10PSAoMW_bin'].isin(st.session_state.selected_wedges_view2)]
+            num_compounds = len(filtered_by_wedges)
+            st.info(f"**Selected:** {num_selected} wedges | {num_compounds:,} compounds")
+        else:
+            st.info("**Selected:** 0 wedges (showing all compounds)")
+        
+        # Download button for selected wedges
+        if num_selected > 0:
+            # Filter data by selected wedges
+            download_df = df_ranked_with_bins[df_ranked_with_bins['10PSAoMW_bin'].isin(st.session_state.selected_wedges_view2)].copy()
+            
+            # Define columns to include in download
+            download_columns = [
+                'Plate', 'Well', 'catalog_number', 'Smiles', 'Chemical_name',
+                'Pct_Inhibition', 'MW', 'TPSA', 'SPEI', 'PPEI', 
+                'PSA_MW_ratio', '10PSAoMW_bin', 'Purity', 'Stereochem.data'
+            ]
+            
+            # Filter to only include columns that exist
+            available_download_cols = [col for col in download_columns if col in download_df.columns]
+            
+            # Create download dataframe
+            df_download = download_df[available_download_cols].copy()
+            
+            # Sort by wedge and then by SPEI (descending)
+            df_download = df_download.sort_values(['10PSAoMW_bin', 'SPEI'], ascending=[True, False])
+            
+            # Download button
+            csv_data = df_download.to_csv(index=False)
+            st.download_button(
+                label=f"📥 Download Selected Wedges ({len(df_download):,} compounds)",
+                data=csv_data,
+                file_name=f"selected_wedges_data_{num_selected}_wedges.csv",
+                mime="text/csv",
+                key="download_wedge_selection_view2"
+            )
+        else:
+            st.warning("⚠️ Select at least one wedge to enable download")
+    
+    st.markdown("---")
+    
+    # Filter if checkbox selected (top candidates)
+    plot_df_base = df_ranked_with_bins[df_ranked_with_bins['Is_Top']] if show_top_only else df_ranked_with_bins
+    
+    # Filter by selected wedges if any are selected
+    if st.session_state.selected_wedges_view2:
+        plot_df = plot_df_base[plot_df_base['10PSAoMW_bin'].isin(st.session_state.selected_wedges_view2)].copy()
+    else:
+        plot_df = plot_df_base.copy()
     
     # CREATE SCATTER PLOT colored by 10PSAoMW bins
     import plotly.express as px
@@ -1344,10 +1456,10 @@ def render_cartesian_section():
     # ADD RADIATING WEDGE LINES FROM ORIGIN
     # ============================================
     if show_wedge_lines:
-        # Get max x and y values for extending lines
-        max_ppei = plot_df['PPEI'].max()
-        max_spei = plot_df['SPEI'].max()
-        max_extent = max(max_ppei, max_spei) * 1.1  # Extend slightly beyond data
+        # Get max x and y values for extending lines (use filtered data)
+        max_ppei_line = plot_df['PPEI'].max() if len(plot_df) > 0 and plot_df['PPEI'].max() > 0 else 1.0
+        max_spei_line = plot_df['SPEI'].max() if len(plot_df) > 0 and plot_df['SPEI'].max() > 0 else 1.0
+        max_extent = max(max_ppei_line, max_spei_line) * 1.1  # Extend slightly beyond data
         
         # Draw wedge boundary lines (diagonal lines from origin)
         for i, edge in enumerate(bin_edges[1:]):  # Skip first edge (0)
@@ -1439,12 +1551,16 @@ def render_cartesian_section():
             showlegend=True
         ))
     
+    # Calculate max values for axes with 5% buffer
+    max_ppei = plot_df['PPEI'].max() * 1.05 if len(plot_df) > 0 and plot_df['PPEI'].max() > 0 else 1.0
+    max_spei = plot_df['SPEI'].max() * 1.05 if len(plot_df) > 0 and plot_df['SPEI'].max() > 0 else 1.0
+    
     # Update layout
     fig2.update_layout(
         xaxis_title='PPEI (Polarity Efficiency) → Higher = Better Membrane Penetration',
         yaxis_title='SPEI (Size Efficiency) → Higher = More Potent per Unit Mass',
-        xaxis=dict(range=[0, None]),
-        yaxis=dict(range=[0, None]),
+        xaxis=dict(range=[0, max_ppei]),
+        yaxis=dict(range=[0, max_spei]),
         legend_title="10PSAoMW",
         template='plotly_white',
         legend=dict(

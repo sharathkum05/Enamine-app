@@ -3,6 +3,7 @@
 Batch %Inhibition + Z' calculator for 384-well plate matrices (CLARIOstar-style),
 with replicate alignment, perimeter-well exclusion, and controls excluded only
 from the side-by-side replicate export.
+so we neeed a new column for the plate name, and the well name, and the signal, and the % inhibition, and the Z' factor.
 
 Outputs:
 - combined_percent_inhibition.csv (Plate, Well, Signal, %Inhibition) [perimeter removed, controls kept]
